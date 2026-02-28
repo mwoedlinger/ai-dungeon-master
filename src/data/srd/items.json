@@ -1,0 +1,33 @@
+{
+  "weapons": [
+    {"name": "Longsword", "damage_dice": "1d8", "damage_type": "slashing", "properties": ["versatile"], "range_normal": null, "range_long": null, "attack_bonus_override": null},
+    {"name": "Dagger", "damage_dice": "1d4", "damage_type": "piercing", "properties": ["finesse", "light", "thrown", "ranged"], "range_normal": 20, "range_long": 60, "attack_bonus_override": null},
+    {"name": "Shortsword", "damage_dice": "1d6", "damage_type": "piercing", "properties": ["finesse", "light"], "range_normal": null, "range_long": null, "attack_bonus_override": null},
+    {"name": "Handaxe", "damage_dice": "1d6", "damage_type": "slashing", "properties": ["light", "thrown", "ranged"], "range_normal": 20, "range_long": 60, "attack_bonus_override": null},
+    {"name": "Quarterstaff", "damage_dice": "1d6", "damage_type": "bludgeoning", "properties": ["versatile"], "range_normal": null, "range_long": null, "attack_bonus_override": null},
+    {"name": "Rapier", "damage_dice": "1d8", "damage_type": "piercing", "properties": ["finesse"], "range_normal": null, "range_long": null, "attack_bonus_override": null},
+    {"name": "Greataxe", "damage_dice": "1d12", "damage_type": "slashing", "properties": ["heavy", "two-handed"], "range_normal": null, "range_long": null, "attack_bonus_override": null},
+    {"name": "Greatsword", "damage_dice": "2d6", "damage_type": "slashing", "properties": ["heavy", "two-handed"], "range_normal": null, "range_long": null, "attack_bonus_override": null},
+    {"name": "Light Crossbow", "damage_dice": "1d8", "damage_type": "piercing", "properties": ["ranged", "two-handed", "loading"], "range_normal": 80, "range_long": 320, "attack_bonus_override": null},
+    {"name": "Shortbow", "damage_dice": "1d6", "damage_type": "piercing", "properties": ["ranged", "two-handed"], "range_normal": 80, "range_long": 320, "attack_bonus_override": null},
+    {"name": "Longbow", "damage_dice": "1d8", "damage_type": "piercing", "properties": ["ranged", "heavy", "two-handed"], "range_normal": 150, "range_long": 600, "attack_bonus_override": null},
+    {"name": "Hand Crossbow", "damage_dice": "1d6", "damage_type": "piercing", "properties": ["ranged", "light", "loading"], "range_normal": 30, "range_long": 120, "attack_bonus_override": null},
+    {"name": "Mace", "damage_dice": "1d6", "damage_type": "bludgeoning", "properties": [], "range_normal": null, "range_long": null, "attack_bonus_override": null},
+    {"name": "Spear", "damage_dice": "1d6", "damage_type": "piercing", "properties": ["thrown", "ranged", "versatile"], "range_normal": 20, "range_long": 60, "attack_bonus_override": null},
+    {"name": "Morningstar", "damage_dice": "1d8", "damage_type": "piercing", "properties": [], "range_normal": null, "range_long": null, "attack_bonus_override": null},
+    {"name": "Scimitar", "damage_dice": "1d6", "damage_type": "slashing", "properties": ["finesse", "light"], "range_normal": null, "range_long": null, "attack_bonus_override": null}
+  ],
+  "armor": [
+    {"name": "Leather Armor", "base_ac": 11, "armor_type": "light", "stealth_disadvantage": false, "strength_requirement": null},
+    {"name": "Studded Leather", "base_ac": 12, "armor_type": "light", "stealth_disadvantage": false, "strength_requirement": null},
+    {"name": "Chain Shirt", "base_ac": 13, "armor_type": "medium", "stealth_disadvantage": false, "strength_requirement": null},
+    {"name": "Scale Mail", "base_ac": 14, "armor_type": "medium", "stealth_disadvantage": true, "strength_requirement": null},
+    {"name": "Breastplate", "base_ac": 14, "armor_type": "medium", "stealth_disadvantage": false, "strength_requirement": null},
+    {"name": "Half Plate", "base_ac": 15, "armor_type": "medium", "stealth_disadvantage": true, "strength_requirement": null},
+    {"name": "Ring Mail", "base_ac": 14, "armor_type": "heavy", "stealth_disadvantage": true, "strength_requirement": null},
+    {"name": "Chain Mail", "base_ac": 16, "armor_type": "heavy", "stealth_disadvantage": true, "strength_requirement": 13},
+    {"name": "Splint", "base_ac": 17, "armor_type": "heavy", "stealth_disadvantage": true, "strength_requirement": 15},
+    {"name": "Plate", "base_ac": 18, "armor_type": "heavy", "stealth_disadvantage": true, "strength_requirement": 15},
+    {"name": "Shield", "base_ac": 2, "armor_type": "shield", "stealth_disadvantage": false, "strength_requirement": null}
+  ]
+}

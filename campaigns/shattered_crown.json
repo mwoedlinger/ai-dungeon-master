@@ -1,0 +1,161 @@
+{
+  "title": "The Shattered Crown",
+  "setting_overview": "The kingdom of Valdris has been without a ruler for three months since King Aldric fell to an assassin's blade. Three noble houses vie for the throne while darkness stirs in the Bleakwood. The common folk suffer as trade routes grow dangerous and old wards weaken.\n\nThornfield Village sits at the edge of the Bleakwood — a muddy crossroads community of two hundred souls, their livelihood dependent on timber trade that has all but stopped. Strange lights flicker in the forest at night. Three woodcutters vanished last month. Elder Mora keeps something from the villagers, and her eyes carry the weight of a terrible secret.",
+  "starting_location_id": "thornfield",
+  "locations": {
+    "thornfield": {
+      "id": "thornfield",
+      "name": "Thornfield Village",
+      "description": "A muddy crossroads village of rough-hewn timber buildings at the edge of the Bleakwood. A palisade wall offers modest protection. The Broken Antler Tavern is the social heart of the settlement. A stone chapel to Pelor stands near the well. Locals watch strangers with wary eyes.",
+      "connected_to": ["bleakwood_edge", "kings_road_south"]
+    },
+    "bleakwood_edge": {
+      "id": "bleakwood_edge",
+      "name": "Edge of the Bleakwood",
+      "description": "Ancient forest, unnaturally dark even at midday. The treeline marks a palpable shift in temperature — ten degrees cooler, the air carrying a faint smell of rot and old magic. Animal sounds stop abruptly at the threshold. Locals avoid it. The underbrush is thick with twisted twig blights that look exactly like dead shrubs... until they move.",
+      "connected_to": ["thornfield", "bleakwood_depths"]
+    },
+    "bleakwood_depths": {
+      "id": "bleakwood_depths",
+      "name": "The Bleakwood Depths",
+      "description": "The heart of the cursed forest. Ancient oaks form a canopy so thick that noon looks like dusk. Strange ruins — stones carved with sigils no scholar recognizes — jut from the earth. The air itself feels hostile. Ghouls prowl here, drawn by the curse's necrotic energy. At the center stands the Thornwood Hollow, a collapsed shrine where Elder Mora's son made his fateful bargain.",
+      "connected_to": ["bleakwood_edge", "thornwood_hollow"]
+    },
+    "thornwood_hollow": {
+      "id": "thornwood_hollow",
+      "name": "The Thornwood Hollow",
+      "description": "A collapsed stone shrine to a forgotten nature god. The altar stone is cracked, and dark ichor seeps from the fissure. This is where Davan Mora made his bargain with whatever lurks in the Bleakwood. He is here now — the Cursed Son — neither truly alive nor dead, commanding the blights and ghouls with a feverish desperation.",
+      "connected_to": ["bleakwood_depths"]
+    },
+    "kings_road_south": {
+      "id": "kings_road_south",
+      "name": "King's Road South",
+      "description": "A rutted road heading south toward the city of Valdris. Bandits have been spotted here since the king's death. The journey takes two days on foot.",
+      "connected_to": ["thornfield"]
+    },
+    "broken_antler_tavern": {
+      "id": "broken_antler_tavern",
+      "name": "The Broken Antler Tavern",
+      "description": "Low beams, a roaring fire, and the smell of wet wool and woodsmoke. Bram the innkeeper keeps the ale flowing and the gossip circulating. A board by the door holds notices — bounties, job offers, and a faded sketch of a missing man. Elder Mora occupies her usual corner table.",
+      "connected_to": ["thornfield"]
+    }
+  },
+  "key_npcs": {
+    "elder_mora": {
+      "name": "Elder Mora",
+      "location": "broken_antler_tavern",
+      "personality": "Cautious and maternal, speaks in proverbs and half-truths, avoids direct answers, deflects with questions about the party's past. Sighs often. Her hands never quite stop moving.",
+      "goals": "Protect the village from the curse and keep her son's involvement secret — though she knows the secret is destroying her.",
+      "secret": "Her son Davan made a bargain with a dark entity in the Bleakwood to cure his illness. The bargain twisted him into the Cursed Son who commands the blights. She has been sending 'offerings' (stolen cattle, gold) to the forest hoping to appease whatever he's become.",
+      "disposition": "friendly"
+    },
+    "bram_innkeeper": {
+      "name": "Bram",
+      "location": "broken_antler_tavern",
+      "personality": "Round-faced, perpetually cheerful, terrible at keeping secrets. Talks constantly. Will tell the party everything he knows within ten minutes of meeting them if given ale or a kind word.",
+      "goals": "Keep his business running, keep his regulars safe, not die. He has a deep, unspoken affection for Elder Mora.",
+      "secret": "He saw Elder Mora leaving the village at night three weeks ago, heading toward the Bleakwood. He hasn't told anyone.",
+      "disposition": "friendly"
+    },
+    "cursed_son": {
+      "name": "Davan Mora (The Cursed Son)",
+      "location": "thornwood_hollow",
+      "personality": "His original self was gentle and bookish. The curse has fragmented his personality — moments of terrified lucidity followed by periods of feral aggression. He whispers his mother's name during the lucid moments.",
+      "goals": "In his cursed state: protect the Hollow and spread the dark entity's influence. In his lucid moments: beg for death, or salvation.",
+      "secret": "The bargain can be broken by destroying the altar stone in the Thornwood Hollow. This will kill him, but he wants it — he has been trying to guide the party toward this outcome.",
+      "disposition": "hostile"
+    },
+    "thorvald_militia_captain": {
+      "name": "Captain Thorvald",
+      "location": "thornfield",
+      "personality": "Square-jawed, by-the-book, deeply suspicious of outsiders. Respects demonstrated competence. Has twenty militia soldiers and is very aware that's not enough.",
+      "goals": "Keep Thornfield alive until the throne crisis resolves and proper military support arrives. Hates asking for help.",
+      "secret": "Three of his militia have deserted to the Bleakwood after being 'called' at night. He's told no one.",
+      "disposition": "neutral"
+    }
+  },
+  "factions": [
+    {
+      "name": "Thornfield Villagers",
+      "description": "Two hundred ordinary people trying to survive a crisis they don't understand.",
+      "goals": "Safety, food, and answers about the disappearances.",
+      "allies": ["Captain Thorvald", "Elder Mora"],
+      "enemies": []
+    },
+    {
+      "name": "House Varen",
+      "description": "Military-minded noble house controlling the western provinces. Their soldiers occasionally pass through on the King's Road.",
+      "goals": "Claim the throne by force if necessary. Maintain control of trade routes.",
+      "allies": ["Thornfield Militia"],
+      "enemies": ["House Delmara"]
+    },
+    {
+      "name": "The Bleakwood Entity",
+      "description": "An ancient, nameless thing that feeds on despair and bargains. It has no true form.",
+      "goals": "Spread its influence beyond the Bleakwood. The curse spreading through Davan is its first step.",
+      "allies": ["Davan Mora", "Twig Blights", "Ghouls"],
+      "enemies": []
+    }
+  ],
+  "plot_hooks": [
+    {
+      "id": "missing_woodcutters",
+      "title": "The Missing Woodcutters",
+      "description": "Three woodcutters — Pell, Orin, and Sasha — vanished near the Bleakwood Edge last month. Their families are desperate. Elder Mora offers 50 gold pieces for information about what happened to them.",
+      "trigger_location": "thornfield",
+      "connected_npcs": ["elder_mora", "bram_innkeeper"]
+    },
+    {
+      "id": "lights_in_the_forest",
+      "title": "Strange Lights",
+      "description": "Local children claim to see pale green lights moving through the Bleakwood at night. The lights seem to follow a path deeper into the forest. Bram the innkeeper dismisses it as will-o-wisps, but his voice shakes when he says it.",
+      "trigger_location": "broken_antler_tavern",
+      "connected_npcs": ["bram_innkeeper"]
+    },
+    {
+      "id": "moras_secret",
+      "title": "Elder Mora's Burden",
+      "description": "Bram saw Elder Mora walking toward the Bleakwood at midnight. She was carrying a bundle. She denied it when asked. The truth: she was bringing an offering to her cursed son, hoping to delay his violence.",
+      "trigger_location": "bleakwood_edge",
+      "connected_npcs": ["elder_mora", "bram_innkeeper", "cursed_son"]
+    }
+  ],
+  "encounter_tables": {
+    "bleakwood_edge": [
+      {
+        "description": "A pack of twig blights emerge from the underbrush, twigs scraping as they move.",
+        "monster_ids": ["twig_blight", "twig_blight", "twig_blight", "twig_blight"],
+        "difficulty": "easy",
+        "trigger": "random"
+      },
+      {
+        "description": "A lone wolf circles the party, its eyes faintly luminous — it serves the entity.",
+        "monster_ids": ["wolf", "wolf"],
+        "difficulty": "easy",
+        "trigger": "random"
+      }
+    ],
+    "bleakwood_depths": [
+      {
+        "description": "Ghouls rise from the leaf litter, drawn by the scent of the living.",
+        "monster_ids": ["ghoul", "ghoul", "ghoul"],
+        "difficulty": "hard",
+        "trigger": "random"
+      },
+      {
+        "description": "A giant spider descends from the ancient canopy.",
+        "monster_ids": ["giant_spider"],
+        "difficulty": "medium",
+        "trigger": "random"
+      }
+    ],
+    "thornwood_hollow": [
+      {
+        "description": "Davan Mora — the Cursed Son — emerges from the ruins, his form warped by dark magic.",
+        "monster_ids": ["ghoul"],
+        "difficulty": "deadly",
+        "trigger": "scripted"
+      }
+    ]
+  }
+}

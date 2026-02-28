@@ -1,0 +1,12 @@
+# Core
+anthropic>=0.40
+pydantic>=2.0
+rich>=13.0
+
+# Optional backends (uncomment as needed)
+# google-genai>=1.0   # Gemini
+openai>=1.0           # Ollama + DeepSeek
+
+# Dev
+pytest>=8.0
+pytest-cov
