@@ -38,6 +38,12 @@ export DEEPSEEK_API_KEY=...
 export GOOGLE_API_KEY=...
 ```
 
+Ollama runs locally and requires no API key. Install it from [ollama.com](https://ollama.com), then pull a model before use:
+
+```bash
+ollama pull llama3.2
+```
+
 ## Usage
 
 ```bash
