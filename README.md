@@ -2,6 +2,28 @@
 
 A Python CLI application that uses an LLM as a Dungeon Master for two-player local D&D 5e sessions. The core design principle: **the LLM is the creative brain, the Python engine is the rules arbiter**. The LLM narrates and interprets intent; it never computes numbers directly — it calls deterministic tool functions for all mechanical adjudication (dice rolls, HP tracking, spell slots, conditions, XP, etc.).
 
+## Quickstart guide
+
+I typically use deepseek since it is very cheap and good quality. For this first to [https://platform.deepseek.com/usage](https://platform.deepseek.com/usage) and create an API key.
+
+```bash
+export export DEEPSEEK_API_KEY="1234567890"
+
+cd ai-dungeon-master
+
+# (Optional) create a virtual environment
+pip venv .venv
+source .venv/bin/activate
+
+# Install necessary packages
+pip install .
+
+# New game — prompts for character setup (create interactively / load from file / use defaults)
+python main.py --new --provider deepseek
+```
+
+Have fun!
+
 ## Features
 
 - **Full D&D 5e combat loop** — initiative, attack rolls, crits, death saves, conditions with duration tracking
