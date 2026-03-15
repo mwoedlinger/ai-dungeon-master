@@ -8,9 +8,12 @@ from src.engine.game_state import GameState
 from rich.panel import Panel
 
 from src.interface.cli import (
+    NarrativeStreamer,
+    clear_screen,
     console,
     display_combat_state,
     display_dice_roll,
+    display_header,
     display_narrative,
     display_status_bar,
 )
@@ -39,15 +42,14 @@ class SessionManager:
 
     def run(self) -> None:
         """Main game loop."""
-        console.print("\n[bold green]═══ AI Dungeon Master ═══[/bold green]\n")
-        console.print("[dim]Commands: quit · /recap[/dim]\n")
+        clear_screen()
+        display_header()
 
         # Opening scene
-        response = self.dm.process_player_input(
+        self._process_and_render(
             "[Session start. Set the scene: describe where the party is, "
             "the atmosphere, and any immediate situation. Greet both players by their character names.]"
         )
-        self._render_turn(response)
 
         while True:
             try:
@@ -73,8 +75,7 @@ class SessionManager:
             return
 
         if player_input.lower() in ("quit", "exit", "q"):
-            response = self.dm.process_player_input("[Player requests to save and quit the session.]")
-            self._render_turn(response)
+            self._process_and_render("[Player requests to save and quit the session.]")
             raise EOFError
 
         if player_input.lower() in ("/recap", "recap"):
@@ -83,8 +84,10 @@ class SessionManager:
             console.print(Panel(recap, title="[bold]Session Recap[/bold]", border_style="cyan"))
             return
 
-        response = self.dm.process_player_input(player_input)
-        self._render_turn(response)
+        # Clear screen and redraw for new turn
+        clear_screen()
+        display_header()
+        self._process_and_render(player_input)
 
         # Check if combat started
         if self.game_state.combat.active:
@@ -118,34 +121,71 @@ class SessionManager:
                 return
             if player_input.lower() in ("quit", "exit", "q"):
                 raise EOFError
-            response = self.dm.process_player_input(
-                f"[{current_char.name}]: {player_input}"
-            )
+
+            clear_screen()
+            display_header()
+            display_combat_state(self.game_state)
+            self._display_turn_header(current_char.name, is_player=True)
+            self._process_and_render(f"[{current_char.name}]: {player_input}")
         else:
             # Monster turn — DM acts automatically
-            response = self.dm.process_player_input(
+            clear_screen()
+            display_header()
+            display_combat_state(self.game_state)
+            self._display_turn_header(current_char.name, is_player=False)
+            self._process_and_render(
                 f"[DM: It is {current_char.name}'s turn. "
                 f"Call get_monster_actions('{current_id}') first, "
                 f"then resolve their actions, then call end_turn().]"
             )
 
-        self._render_turn(response)
-
         if not self.game_state.combat.active:
             self.mode = TurnMode.EXPLORATION
 
-    def _render_turn(self, narrative: str) -> None:
-        """Render new event log entries then the narrative."""
-        # Render dice callout boxes for new events
-        new_events = self.event_log.entries[self._last_event_idx:]
-        self._last_event_idx = len(self.event_log.entries)
-        for entry in new_events:
-            display_dice_roll(entry)
+    @staticmethod
+    def _display_turn_header(name: str, *, is_player: bool) -> None:
+        """Print a clear visual separator for the current combatant's turn."""
+        if is_player:
+            console.print(f"\n  [bold cyan]── {name}'s Turn ──[/bold cyan]\n")
+        else:
+            console.print(f"\n  [bold red]── {name}'s Turn ──[/bold red]\n")
 
-        # Get current location name for panel header
+    def _process_and_render(self, player_input: str) -> None:
+        """Process input with streaming output, then show dice rolls and narrative."""
+        # Get location name for the streamer header
         loc_id = self.game_state.world.current_location_id
         loc = self.game_state.world.locations.get(loc_id)
         loc_name = loc.name if loc else ""
 
-        if narrative:
-            display_narrative(narrative, location_name=loc_name)
+        # Show dice rolls that happened before streaming starts
+        self._flush_dice_rolls()
+
+        # Set up the narrative streamer
+        streamer = NarrativeStreamer(location_name=loc_name)
+        streamed_any = False
+
+        def on_chunk(text: str) -> None:
+            nonlocal streamed_any
+            if not streamed_any:
+                # Flush any dice rolls that accumulated during tool calls
+                self._flush_dice_rolls()
+                streamed_any = True
+            streamer.write_chunk(text)
+
+        # Process through the DM with streaming
+        response = self.dm.process_player_input(player_input, on_text_chunk=on_chunk)
+
+        if streamed_any:
+            streamer.end()
+        else:
+            # Fallback: no streaming happened (e.g. non-streaming backend)
+            self._flush_dice_rolls()
+            if response:
+                display_narrative(response, location_name=loc_name)
+
+    def _flush_dice_rolls(self) -> None:
+        """Render any new dice roll events from the event log."""
+        new_events = self.event_log.entries[self._last_event_idx:]
+        self._last_event_idx = len(self.event_log.entries)
+        for entry in new_events:
+            display_dice_roll(entry)

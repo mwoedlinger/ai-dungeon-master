@@ -1,6 +1,8 @@
 """Rich-based terminal UI."""
 from __future__ import annotations
 
+import os
+import sys
 from typing import TYPE_CHECKING
 
 from rich.console import Console
@@ -15,8 +17,106 @@ if TYPE_CHECKING:
 console = Console()
 
 
+def clear_screen() -> None:
+    """Clear the terminal."""
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+def display_header() -> None:
+    """Display the game header after clearing."""
+    console.print("[bold green]═══ AI Dungeon Master ═══[/bold green]")
+    console.print("[dim]Commands: quit | /recap[/dim]\n")
+
+
+class NarrativeStreamer:
+    """Streams narrative text inside a bordered panel with word-wrapping."""
+
+    _CYAN = "\033[36m"
+    _RESET = "\033[0m"
+    _BOLD_CYAN = "\033[1;36m"
+    # "  │  " — 2 indent + border + 2 padding = 5 visible chars
+    _LINE_PREFIX = f"  {_CYAN}\u2502{_RESET}  "
+    _MARGIN = 5  # visible character width of the prefix
+
+    def __init__(self, location_name: str = "") -> None:
+        self._location_name = location_name
+        self._started = False
+        self._col = 0  # current column position on the line
+        self._max_col = 0  # computed in start()
+        self._word_buf: list[str] = []  # buffer for current word
+
+    def start(self) -> None:
+        """Print the top border of the narrative panel."""
+        w = console.width - 4
+        self._max_col = console.width - self._MARGIN - 1  # leave 1 char margin
+        if self._location_name:
+            label = f" {self._location_name} "
+            fill = max(0, w - len(label) - 2)
+            sys.stdout.write(f"  {self._CYAN}\u256d\u2500{self._BOLD_CYAN}{label}{self._CYAN}{'─' * fill}\u256e{self._RESET}\n")
+        else:
+            sys.stdout.write(f"  {self._CYAN}\u256d{'─' * w}\u256e{self._RESET}\n")
+        sys.stdout.write(f"{self._LINE_PREFIX}\n{self._LINE_PREFIX}")
+        sys.stdout.flush()
+        self._started = True
+        self._col = 0
+
+    def _newline(self) -> None:
+        """Write a line break with the border prefix."""
+        sys.stdout.write(f"\n{self._LINE_PREFIX}")
+        self._col = 0
+
+    def _flush_word(self) -> None:
+        """Flush the buffered word, wrapping to next line if needed."""
+        if not self._word_buf:
+            return
+        word = "".join(self._word_buf)
+        self._word_buf.clear()
+        # If the word would overflow, wrap first (unless we're at line start)
+        if self._col > 0 and self._col + len(word) > self._max_col:
+            self._newline()
+        sys.stdout.write(word)
+        self._col += len(word)
+
+    def write_chunk(self, text: str) -> None:
+        """Write a chunk of streamed text with word-wrapping."""
+        if not self._started:
+            self.start()
+        for char in text:
+            if char == "\n":
+                self._flush_word()
+                self._newline()
+            elif char == " ":
+                self._flush_word()
+                # Write the space if it fits, otherwise it becomes the wrap point
+                if self._col < self._max_col:
+                    sys.stdout.write(" ")
+                    self._col += 1
+                else:
+                    self._newline()
+            else:
+                self._word_buf.append(char)
+        # Flush partial word so text appears immediately during streaming
+        if self._word_buf:
+            word = "".join(self._word_buf)
+            if self._col > 0 and self._col + len(word) > self._max_col:
+                self._newline()
+            sys.stdout.write(word)
+            self._col += len(word)
+            self._word_buf.clear()
+        sys.stdout.flush()
+
+    def end(self) -> None:
+        """Print the bottom border of the narrative panel."""
+        if self._started:
+            self._flush_word()
+            w = console.width - 4
+            sys.stdout.write(f"\n{self._LINE_PREFIX}\n  {self._CYAN}\u2570{'─' * w}\u256f{self._RESET}\n")
+            sys.stdout.flush()
+            self._started = False
+
+
 def display_narrative(text: str, location_name: str = "") -> None:
-    """Display narrative prose in a styled panel."""
+    """Display narrative prose in a styled panel (non-streamed fallback)."""
     title = f"[bold cyan]{location_name}[/bold cyan]" if location_name else ""
     console.print(Panel(text, title=title, border_style="cyan", padding=(1, 2)))
 
@@ -35,10 +135,10 @@ def display_dice_roll(entry: "EventEntry") -> None:
         mod = result.get("modifier", 0)
         roll_str = "+".join(str(r) for r in rolls)
         mod_str = f"{mod:+d}" if mod else ""
-        line = f"[yellow]{expr}[/yellow] → [{roll_str}]{mod_str} = [bold]{total}[/bold]"
+        line = f"[yellow]{expr}[/yellow] \u2192 [{roll_str}]{mod_str} = [bold]{total}[/bold]"
         if reason:
             line = f"[dim]{reason}:[/dim] " + line
-        console.print(f"  ┌ {line}")
+        console.print(f"  \u250c {line}")
 
     elif tool == "attack":
         attacker = result.get("attacker", inputs.get("attacker_id", "?"))
@@ -51,30 +151,30 @@ def display_dice_roll(entry: "EventEntry") -> None:
         is_crit = result.get("is_crit", False)
         damage = result.get("damage")
 
-        hit_str = "[bold green]✓ HIT[/bold green]" if hits else "[bold red]✗ MISS[/bold red]"
+        hit_str = "[bold green]\u2713 HIT[/bold green]" if hits else "[bold red]\u2717 MISS[/bold red]"
         if is_crit:
-            hit_str = "[bold magenta]★ CRITICAL HIT[/bold magenta]"
+            hit_str = "[bold magenta]\u2605 CRITICAL HIT[/bold magenta]"
         roll_display = "+".join(str(r) for r in (rolls if isinstance(rolls, list) else [rolls]))
-        line = f"[yellow]1d20+{bonus}[/yellow] → [{roll_display}]+{bonus} = [bold]{total}[/bold] vs AC {ac} {hit_str}"
-        console.print(f"  ┌ Attack Roll ──")
-        console.print(f"  │ {line}")
+        line = f"[yellow]1d20+{bonus}[/yellow] \u2192 [{roll_display}]+{bonus} = [bold]{total}[/bold] vs AC {ac} {hit_str}"
+        console.print(f"  \u250c Attack Roll \u2500\u2500")
+        console.print(f"  \u2502 {line}")
         if damage is not None:
             dmg_type = result.get("damage_type", "")
             hp_left = result.get("hp_remaining", "?")
-            console.print(f"  │ Damage: [bold red]{damage}[/bold red] {dmg_type} | {target} → {hp_left} HP")
-        console.print("  └──")
+            console.print(f"  \u2502 Damage: [bold red]{damage}[/bold red] {dmg_type} | {target} \u2192 {hp_left} HP")
+        console.print("  \u2514\u2500\u2500")
 
     elif tool in ("cast_spell",):
         spell = result.get("spell", inputs.get("spell_name", "?"))
         if result.get("success"):
             targets_info = result.get("targets", [])
-            console.print(f"  ┌ [magenta]{spell}[/magenta]")
+            console.print(f"  \u250c [magenta]{spell}[/magenta]")
             for t in targets_info:
                 if "damage" in t:
-                    console.print(f"  │ {t['target']}: {t.get('damage', 0)} dmg | {t.get('hp_remaining', '?')} HP remaining")
+                    console.print(f"  \u2502 {t['target']}: {t.get('damage', 0)} dmg | {t.get('hp_remaining', '?')} HP remaining")
                 elif "healed" in result:
-                    console.print(f"  │ Healed: {result['healed']} HP")
-            console.print("  └──")
+                    console.print(f"  \u2502 Healed: {result['healed']} HP")
+            console.print("  \u2514\u2500\u2500")
 
 
 def display_status_bar(game_state: "GameState") -> None:
@@ -102,14 +202,14 @@ def display_combat_state(game_state: "GameState") -> None:
     if not combat.active:
         return
 
-    lines = [f"[bold red]COMBAT — Round {combat.round}[/bold red]", ""]
+    lines = [f"[bold red]COMBAT \u2014 Round {combat.round}[/bold red]", ""]
     for i, cid in enumerate(combat.turn_order):
         try:
             char = game_state.get_character(cid)
         except KeyError:
             continue
         c = combat.combatants[cid]
-        marker = "[bold cyan]→[/bold cyan] " if i == combat.current_turn_index else "  "
+        marker = "[bold cyan]\u2192[/bold cyan] " if i == combat.current_turn_index else "  "
         actions = []
         if c.has_action:
             actions.append("A")

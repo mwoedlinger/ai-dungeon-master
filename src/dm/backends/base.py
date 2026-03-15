@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 
@@ -28,6 +29,20 @@ class LLMBackend(ABC):
         tools: list[dict],
         max_tokens: int = 2048,
     ) -> LLMResponse: ...
+
+    def stream_complete(
+        self,
+        system: str | list[dict],
+        messages: list[dict],
+        tools: list[dict],
+        max_tokens: int = 2048,
+        on_text_chunk: Callable[[str], None] | None = None,
+    ) -> LLMResponse:
+        """Streaming variant of complete. Default falls back to non-streaming."""
+        result = self.complete(system, messages, tools, max_tokens)
+        if on_text_chunk and result.text:
+            on_text_chunk(result.text)
+        return result
 
     @abstractmethod
     def compress(

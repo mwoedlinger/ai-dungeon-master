@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 
 from src.dm.backends.base import LLMBackend, LLMResponse, ToolCall
 
@@ -47,6 +48,81 @@ class DeepSeekBackend(LLMBackend):
             max_tokens=max_tokens,
         )
         return self._from_response(response)
+
+    def stream_complete(
+        self,
+        system: str | list[dict],
+        messages: list[dict],
+        tools: list[dict],
+        max_tokens: int = 2048,
+        on_text_chunk: Callable[[str], None] | None = None,
+    ) -> LLMResponse:
+        stream = self._client.chat.completions.create(
+            model=self.model,
+            messages=self._to_wire(self._flatten_system(system), messages),
+            tools=self._convert_tools(tools),  # type: ignore[arg-type]
+            max_tokens=max_tokens,
+            stream=True,
+        )
+
+        text_parts: list[str] = []
+        # Tool call deltas arrive indexed; accumulate per-index.
+        tc_accum: dict[int, dict] = {}  # idx -> {id, name, arguments}
+
+        for chunk in stream:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta is None:
+                continue
+
+            if delta.content:
+                text_parts.append(delta.content)
+                if on_text_chunk:
+                    on_text_chunk(delta.content)
+
+            if delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    if idx not in tc_accum:
+                        tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
+                    if tc_delta.id:
+                        tc_accum[idx]["id"] = tc_delta.id
+                    if tc_delta.function:
+                        if tc_delta.function.name:
+                            tc_accum[idx]["name"] = tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            tc_accum[idx]["arguments"] += tc_delta.function.arguments
+
+        # Build the LLMResponse from accumulated data
+        text = "".join(text_parts)
+        tool_calls: list[ToolCall] = []
+        raw_content: list[dict] = []
+
+        if text:
+            raw_content.append({"type": "text", "text": text})
+
+        for _idx, tc_data in sorted(tc_accum.items()):
+            try:
+                args = json.loads(tc_data["arguments"])
+            except json.JSONDecodeError:
+                args = {}
+            tool_calls.append(ToolCall(id=tc_data["id"], name=tc_data["name"], input=args))
+            raw_content.append({
+                "type": "tool_use",
+                "id": tc_data["id"],
+                "name": tc_data["name"],
+                "input": args,
+            })
+
+        if not tool_calls:
+            raw_assistant_message = {"role": "assistant", "content": text}
+        else:
+            raw_assistant_message = {"role": "assistant", "content": raw_content}
+
+        return LLMResponse(
+            text=text,
+            tool_calls=tool_calls,
+            raw_assistant_message=raw_assistant_message,
+        )
 
     def compress(
         self,

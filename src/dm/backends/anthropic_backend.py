@@ -1,6 +1,8 @@
 """Anthropic backend — wraps the anthropic SDK."""
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import anthropic as _anthropic
 
 from src.dm.backends.base import LLMBackend, LLMResponse, ToolCall
@@ -28,6 +30,28 @@ class AnthropicBackend(LLMBackend):
             max_tokens=max_tokens,
             extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
         )
+        return self._from_response(response)
+
+    def stream_complete(
+        self,
+        system: str | list[dict],
+        messages: list[dict],
+        tools: list[dict],
+        max_tokens: int = 2048,
+        on_text_chunk: Callable[[str], None] | None = None,
+    ) -> LLMResponse:
+        with self._client.messages.stream(
+            model=self.model,
+            system=system,
+            messages=self._to_wire(messages),
+            tools=tools,  # type: ignore[arg-type]
+            max_tokens=max_tokens,
+            extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+        ) as stream:
+            if on_text_chunk:
+                for text in stream.text_stream:
+                    on_text_chunk(text)
+            response = stream.get_final_message()
         return self._from_response(response)
 
     def compress(

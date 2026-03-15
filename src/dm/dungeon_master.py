@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
 from src.campaign.campaign_db import CampaignData
 from src.dm.backends import create_backend
@@ -30,17 +31,38 @@ class DungeonMaster:
             backend=self.backend, campaign=campaign,
         )
 
-    def process_player_input(self, player_input: str) -> str:
-        """Process player input through the LLM loop, return narrative response."""
+    def process_player_input(
+        self,
+        player_input: str,
+        on_text_chunk: Callable[[str], None] | None = None,
+    ) -> str:
+        """Process player input through the LLM loop, return narrative response.
+
+        If *on_text_chunk* is provided, the final narrative is streamed via the
+        callback (one chunk at a time).  Tool-calling iterations use regular
+        (non-streaming) complete.
+        """
         self.context_manager.add_message({"role": "user", "content": player_input})
 
         while True:
-            result = self.backend.complete(
+            api_kwargs = dict(
                 system=self.context_manager.build_system_prompt_blocks(),
                 messages=self.context_manager.get_messages_for_api(),
                 tools=ALL_TOOL_SCHEMAS,
                 max_tokens=2048,
             )
+
+            # Peek with non-streaming complete to check for tool calls.
+            # If no callback requested, always use non-streaming.
+            if not on_text_chunk:
+                result = self.backend.complete(**api_kwargs)
+            else:
+                # Use streaming — the callback fires for text chunks.
+                # During tool-call iterations the text is typically empty so the
+                # callback is rarely invoked until the final narration.
+                result = self.backend.stream_complete(
+                    **api_kwargs, on_text_chunk=on_text_chunk,
+                )
 
             if not result.tool_calls:
                 self.context_manager.add_message(result.raw_assistant_message)
