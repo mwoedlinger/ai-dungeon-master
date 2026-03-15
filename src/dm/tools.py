@@ -497,6 +497,7 @@ class ToolDispatcher:
                 self._npc_sessions.clear()
                 participant_ids = list(inputs["participant_ids"])
                 # Spawn monster templates if provided
+                spawned_ids = []
                 for tmpl_id in inputs.get("monster_templates", []):
                     monster = get_monster_template(tmpl_id)
                     # Assign unique ID
@@ -508,8 +509,16 @@ class ToolDispatcher:
                         mid = f"{base}_{counter}"
                     monster.id = mid
                     gs.characters[mid] = monster
-                    participant_ids.append(mid)
-                return combat_engine.start_combat(gs, participant_ids)
+                    spawned_ids.append(mid)
+                participant_ids.extend(spawned_ids)
+                # Deduplicate while preserving order
+                seen: set[str] = set()
+                unique_ids: list[str] = []
+                for pid in participant_ids:
+                    if pid not in seen:
+                        seen.add(pid)
+                        unique_ids.append(pid)
+                return combat_engine.start_combat(gs, unique_ids)
 
             case "attack":
                 attacker = gs.get_character(inputs["attacker_id"])

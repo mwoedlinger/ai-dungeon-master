@@ -19,27 +19,35 @@ def _apply_upcast(base_dice: str | None, spell: SpellData, cast_level: int) -> s
     if levels_above <= 0:
         return base_dice
 
-    # Parse "+NdM per level" or "+NdM damage per level"
-    match = re.search(r"\+(\d*d\d+)", spell.upcast_bonus)
-    if not match:
+    # Parse "+NdM" or "+NdM+C" from upcast_bonus
+    bonus_match = re.search(r"\+(\d*d\d+)(?:\+(\d+))?", spell.upcast_bonus)
+    if not bonus_match:
         return base_dice
 
-    bonus_dice = match.group(1)
-    # Parse base: NdM + bonus*levels
-    base_match = re.fullmatch(r"(\d*)d(\d+)", base_dice.strip())
+    bonus_dice = bonus_match.group(1)
+    bonus_const = int(bonus_match.group(2)) if bonus_match.group(2) else 0
+
+    # Parse base: NdM or NdM+C
+    base_match = re.fullmatch(r"(\d*)d(\d+)(?:\+(\d+))?", base_dice.strip())
     if not base_match:
         return base_dice
     base_n = int(base_match.group(1)) if base_match.group(1) else 1
     sides = int(base_match.group(2))
+    base_const = int(base_match.group(3)) if base_match.group(3) else 0
 
-    bonus_match = re.fullmatch(r"(\d*)d(\d+)", bonus_dice.strip())
-    if not bonus_match or int(bonus_match.group(2)) != sides:
+    bonus_dice_match = re.fullmatch(r"(\d*)d(\d+)", bonus_dice.strip())
+    if not bonus_dice_match or int(bonus_dice_match.group(2)) != sides:
         # Different die types — just append
-        return base_dice + "+" + "+".join([bonus_dice] * levels_above)
+        bonus_expr = bonus_dice + (f"+{bonus_const}" if bonus_const else "")
+        return base_dice + "+" + "+".join([bonus_expr] * levels_above)
 
-    bonus_n = int(bonus_match.group(1)) if bonus_match.group(1) else 1
+    bonus_n = int(bonus_dice_match.group(1)) if bonus_dice_match.group(1) else 1
     total_n = base_n + bonus_n * levels_above
-    return f"{total_n}d{sides}"
+    total_const = base_const + bonus_const * levels_above
+    result = f"{total_n}d{sides}"
+    if total_const:
+        result += f"+{total_const}"
+    return result
 
 
 def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list[Character], cast_level: int) -> dict:
@@ -145,6 +153,19 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
                     "condition": spell.condition_effect if effect_applied else None,
                 })
             return {**base_result, "dc": dc, "targets": results}
+
+        case SpellResolution.AUTO_DAMAGE:
+            damage_expr = _apply_upcast(spell.damage_dice, spell, cast_level)
+            results = []
+            for target in targets:
+                damage = roll_dice(damage_expr).total
+                dmg_result = apply_damage(target, damage, spell.damage_type or "force")
+                results.append({
+                    "target": target.name,
+                    "damage": dmg_result["damage_dealt"],
+                    "hp_remaining": target.hp,
+                })
+            return {**base_result, "targets": results}
 
         case SpellResolution.NARRATIVE:
             return {

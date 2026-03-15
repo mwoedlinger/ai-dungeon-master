@@ -11,6 +11,7 @@ class SpellResolution(str, Enum):
     SAVE_EFFECT = "save_effect"
     HEALING = "healing"
     BUFF = "buff"
+    AUTO_DAMAGE = "auto_damage"
     NARRATIVE = "narrative"
 
 

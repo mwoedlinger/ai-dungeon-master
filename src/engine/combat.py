@@ -74,11 +74,24 @@ def end_turn(game_state) -> dict:
         if cond in current_char.conditions:
             current_char.conditions.remove(cond)
 
-    # Advance turn
-    next_index = (combat.current_turn_index + 1) % len(combat.turn_order)
+    # Advance turn, skipping dead combatants (0 HP)
+    n = len(combat.turn_order)
+    next_index = (combat.current_turn_index + 1) % n
     new_round = combat.round
     if next_index == 0:
         new_round += 1
+
+    # Skip combatants that are dead (0 HP or have "dead" condition)
+    skipped = 0
+    while skipped < n:
+        cid = combat.turn_order[next_index]
+        char = game_state.get_character(cid)
+        if char.hp > 0 and "dead" not in char.conditions:
+            break
+        next_index = (next_index + 1) % n
+        if next_index == 0:
+            new_round += 1
+        skipped += 1
 
     combat.current_turn_index = next_index
     combat.round = new_round
