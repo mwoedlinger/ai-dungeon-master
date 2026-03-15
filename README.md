@@ -7,12 +7,12 @@ A Python CLI application that uses an LLM as a Dungeon Master for two-player loc
 I typically use deepseek since it is very cheap and good quality. For this first to [https://platform.deepseek.com/usage](https://platform.deepseek.com/usage) and create an API key.
 
 ```bash
-export export DEEPSEEK_API_KEY="1234567890"
+export DEEPSEEK_API_KEY="1234567890"
 
 cd ai-dungeon-master
 
 # (Optional) create a virtual environment
-pip venv .venv
+python -m venv .venv
 source .venv/bin/activate
 
 # Install necessary packages
