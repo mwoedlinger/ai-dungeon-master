@@ -170,8 +170,14 @@ def apply_damage(target: Character, amount: int, damage_type: str) -> dict:
             if "unconscious" not in target.conditions:
                 target.conditions.append("unconscious")
             result["unconscious"] = True
+            if target.concentration:
+                target.concentration = None
+                result["concentration_broken"] = True
         else:
             result["dead"] = True
+    elif target.concentration and target.is_player:
+        result["concentration_check_required"] = True
+        result["concentration_dc"] = max(10, amount // 2)
 
     return result
 

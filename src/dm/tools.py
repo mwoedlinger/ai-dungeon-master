@@ -332,6 +332,62 @@ _STATE_TOOLS = [
             "required": ["character_id", "ability", "increase_by"],
         },
     },
+    {
+        "name": "use_action_surge",
+        "description": "Use Action Surge (Fighter). Grants an additional action this turn. Consumes one charge.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"character_id": {"type": "string"}},
+            "required": ["character_id"],
+        },
+    },
+    {
+        "name": "learn_spell",
+        "description": "Add a spell to a character's known spells. Use after level-up when a character gains new spells.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "spell_name": {"type": "string"},
+            },
+            "required": ["character_id", "spell_name"],
+        },
+    },
+    {
+        "name": "get_random_encounter",
+        "description": "Roll a random encounter for the current or specified location. Returns encounter details and monster IDs to use with start_combat().",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "location_id": {"type": "string", "description": "Location to roll encounter for. Defaults to current location."},
+            },
+        },
+    },
+    {
+        "name": "start_npc_dialogue",
+        "description": "Start an in-character dialogue with an NPC. Returns the NPC's response. Resolve skill checks (Persuasion, Insight) BEFORE calling this and pass results in context.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "npc_id": {"type": "string", "description": "NPC identifier from campaign data"},
+                "player_input": {"type": "string", "description": "What the player says or does"},
+                "context": {"type": "string", "description": "DM context: check results, scene details, etc."},
+            },
+            "required": ["npc_id", "player_input"],
+        },
+    },
+    {
+        "name": "continue_npc_dialogue",
+        "description": "Continue an existing dialogue with an NPC. Uses the same session from start_npc_dialogue.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "npc_id": {"type": "string"},
+                "player_input": {"type": "string"},
+            },
+            "required": ["npc_id", "player_input"],
+        },
+    },
 ]
 
 ALL_TOOL_SCHEMAS: list[dict] = _DICE_AND_CHECK_TOOLS + _COMBAT_TOOLS + _STATE_TOOLS
@@ -355,10 +411,20 @@ COMBAT_ONLY_TOOLS = frozenset({
 # ---------------------------------------------------------------------------
 
 class ToolDispatcher:
-    def __init__(self, game_state: "GameState", event_log: EventLog, save_path: str = "saves/autosave.json"):
+    def __init__(
+        self,
+        game_state: "GameState",
+        event_log: EventLog,
+        save_path: str = "saves/autosave.json",
+        backend: object = None,
+        campaign: object = None,
+    ):
         self.game_state = game_state
         self.event_log = event_log
         self.save_path = save_path
+        self.backend = backend
+        self.campaign = campaign
+        self._npc_sessions: dict[str, object] = {}  # npc_id → NPCDialogueSession
 
     def dispatch(self, tool_name: str, inputs: dict) -> dict:
         """Route tool call to engine with validation."""
@@ -428,6 +494,7 @@ class ToolDispatcher:
 
             # --- Combat ---
             case "start_combat":
+                self._npc_sessions.clear()
                 participant_ids = list(inputs["participant_ids"])
                 # Spawn monster templates if provided
                 for tmpl_id in inputs.get("monster_templates", []):
@@ -537,10 +604,14 @@ class ToolDispatcher:
                 return gs.get_character_sheet(inputs["character_id"])
 
             case "take_short_rest":
+                if gs.combat.active:
+                    return {"success": False, "error": "Cannot take a short rest during combat."}
                 char = gs.get_character(inputs["character_id"])
                 return rest_engine.short_rest(char, inputs["hit_dice_to_spend"])
 
             case "take_long_rest":
+                if gs.combat.active:
+                    return {"success": False, "error": "Cannot take a long rest during combat."}
                 char = gs.get_character(inputs["character_id"])
                 return rest_engine.long_rest(char)
 
@@ -561,6 +632,7 @@ class ToolDispatcher:
                 )
 
             case "set_location":
+                self._npc_sessions.clear()
                 return gs.set_location(inputs["location_id"])
 
             case "query_world_lore":
@@ -583,6 +655,73 @@ class ToolDispatcher:
                     "ability": ability,
                     "new_score": new_val,
                 }
+
+            case "use_action_surge":
+                char = gs.get_character(inputs["character_id"])
+                charges = char.class_resources.get("action_surge", 0)
+                if charges <= 0:
+                    return {"success": False, "error": f"{char.name} has no Action Surge charges."}
+                char.class_resources["action_surge"] = charges - 1
+                if gs.combat.active and inputs["character_id"] in gs.combat.combatants:
+                    gs.combat.combatants[inputs["character_id"]].has_action = True
+                return {
+                    "success": True,
+                    "character": char.name,
+                    "remaining_charges": char.class_resources["action_surge"],
+                    "note": f"{char.name} surges with renewed vigor — an additional action this turn!",
+                }
+
+            case "learn_spell":
+                char = gs.get_character(inputs["character_id"])
+                max_level = max(char.max_spell_slots.keys(), default=0)
+                from src.engine.progression import learn_spell as _learn_spell
+                return _learn_spell(char, inputs["spell_name"], max_level)
+
+            case "get_random_encounter":
+                import random as _random
+                loc_id = inputs.get("location_id", gs.world.current_location_id)
+                if gs.campaign is None:
+                    return {"success": False, "error": "No campaign loaded."}
+                encounters = gs.campaign.encounter_tables.get(loc_id, [])
+                if not encounters:
+                    return {"success": False, "error": f"No encounter table for {loc_id!r}."}
+                random_encounters = [e for e in encounters if e.trigger == "random"]
+                if not random_encounters:
+                    return {"success": False, "error": "No random encounters available."}
+                encounter = _random.choice(random_encounters)
+                return {
+                    "success": True,
+                    "description": encounter.description,
+                    "monster_ids": encounter.monster_ids,
+                    "difficulty": encounter.difficulty,
+                    "note": "Call start_combat() with these monster_ids in monster_templates to begin.",
+                }
+
+            case "start_npc_dialogue":
+                npc_id = inputs["npc_id"]
+                if gs.campaign is None:
+                    return {"success": False, "error": "No campaign loaded."}
+                if self.backend is None:
+                    return {"success": False, "error": "No LLM backend available for NPC dialogue."}
+                npc = gs.campaign.get_npc(npc_id)
+                if npc is None:
+                    return {"success": False, "error": f"NPC {npc_id!r} not found."}
+                from src.dm.npc_dialogue import NPCDialogueSession
+                session = NPCDialogueSession(npc=npc, backend=self.backend, campaign=gs.campaign)
+                self._npc_sessions[npc_id] = session
+                response = session.respond(
+                    inputs["player_input"],
+                    context=inputs.get("context", ""),
+                )
+                return {"success": True, "npc": npc.name, "response": response}
+
+            case "continue_npc_dialogue":
+                npc_id = inputs["npc_id"]
+                session = self._npc_sessions.get(npc_id)
+                if session is None:
+                    return {"success": False, "error": f"No active dialogue with {npc_id!r}. Call start_npc_dialogue first."}
+                response = session.respond(inputs["player_input"])
+                return {"success": True, "npc_id": npc_id, "response": response}
 
             case _:
                 return {"success": False, "error": f"Unknown tool: {tool_name!r}"}

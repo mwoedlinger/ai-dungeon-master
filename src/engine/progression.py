@@ -5,6 +5,151 @@ from src.engine.rules import proficiency_bonus_for_level
 from src.models.character import Character
 
 # ---------------------------------------------------------------------------
+# Class features table: class → level → list of features
+# ---------------------------------------------------------------------------
+
+CLASS_FEATURES: dict[str, dict[int, list[dict]]] = {
+    "Barbarian": {
+        1:  [{"name": "Rage", "type": "resource", "resource": "rage", "value": 2},
+             {"name": "Unarmored Defense", "type": "narrative"}],
+        2:  [{"name": "Reckless Attack", "type": "narrative"},
+             {"name": "Danger Sense", "type": "narrative"}],
+        3:  [{"name": "Primal Path", "type": "narrative"},
+             {"name": "Rage", "type": "resource", "resource": "rage", "value": 3}],
+        5:  [{"name": "Extra Attack", "type": "flag", "flag": "extra_attack"},
+             {"name": "Fast Movement", "type": "narrative"}],
+        6:  [{"name": "Rage", "type": "resource", "resource": "rage", "value": 4}],
+        9:  [{"name": "Brutal Critical", "type": "narrative"}],
+        12: [{"name": "Rage", "type": "resource", "resource": "rage", "value": 5}],
+        17: [{"name": "Rage", "type": "resource", "resource": "rage", "value": 6}],
+    },
+    "Bard": {
+        1:  [{"name": "Bardic Inspiration", "type": "scaling", "resource": "bardic_inspiration",
+              "formula": "max(1, CHA_mod)"},
+             {"name": "Spellcasting", "type": "narrative"}],
+        2:  [{"name": "Jack of All Trades", "type": "narrative"},
+             {"name": "Song of Rest", "type": "narrative"}],
+        3:  [{"name": "Bard College", "type": "narrative"},
+             {"name": "Expertise", "type": "narrative"}],
+        5:  [{"name": "Font of Inspiration", "type": "narrative"}],
+        6:  [{"name": "Countercharm", "type": "narrative"}],
+    },
+    "Cleric": {
+        1:  [{"name": "Spellcasting", "type": "narrative"},
+             {"name": "Divine Domain", "type": "narrative"}],
+        2:  [{"name": "Channel Divinity", "type": "resource", "resource": "channel_divinity", "value": 1},
+             {"name": "Turn Undead", "type": "narrative"}],
+        5:  [{"name": "Destroy Undead", "type": "narrative"}],
+        6:  [{"name": "Channel Divinity", "type": "resource", "resource": "channel_divinity", "value": 2}],
+        10: [{"name": "Divine Intervention", "type": "narrative"}],
+        18: [{"name": "Channel Divinity", "type": "resource", "resource": "channel_divinity", "value": 3}],
+    },
+    "Druid": {
+        1:  [{"name": "Druidic", "type": "narrative"},
+             {"name": "Spellcasting", "type": "narrative"}],
+        2:  [{"name": "Wild Shape", "type": "resource", "resource": "wild_shape", "value": 2},
+             {"name": "Druid Circle", "type": "narrative"}],
+        18: [{"name": "Timeless Body", "type": "narrative"},
+             {"name": "Beast Spells", "type": "narrative"}],
+        20: [{"name": "Archdruid", "type": "narrative"}],
+    },
+    "Fighter": {
+        1:  [{"name": "Fighting Style", "type": "narrative"},
+             {"name": "Second Wind", "type": "resource", "resource": "second_wind", "value": 1}],
+        2:  [{"name": "Action Surge", "type": "resource", "resource": "action_surge", "value": 1}],
+        3:  [{"name": "Martial Archetype", "type": "narrative"}],
+        5:  [{"name": "Extra Attack", "type": "flag", "flag": "extra_attack"}],
+        9:  [{"name": "Indomitable", "type": "resource", "resource": "indomitable", "value": 1}],
+        13: [{"name": "Indomitable", "type": "resource", "resource": "indomitable", "value": 2}],
+        17: [{"name": "Action Surge", "type": "resource", "resource": "action_surge", "value": 2},
+             {"name": "Indomitable", "type": "resource", "resource": "indomitable", "value": 3}],
+    },
+    "Monk": {
+        1:  [{"name": "Unarmored Defense", "type": "narrative"},
+             {"name": "Martial Arts", "type": "narrative"}],
+        2:  [{"name": "Ki", "type": "scaling", "resource": "ki", "formula": "level"},
+             {"name": "Unarmored Movement", "type": "narrative"}],
+        3:  [{"name": "Monastic Tradition", "type": "narrative"},
+             {"name": "Deflect Missiles", "type": "narrative"}],
+        4:  [{"name": "Slow Fall", "type": "narrative"}],
+        5:  [{"name": "Extra Attack", "type": "flag", "flag": "extra_attack"},
+             {"name": "Stunning Strike", "type": "narrative"}],
+        7:  [{"name": "Evasion", "type": "flag", "flag": "evasion"},
+             {"name": "Stillness of Mind", "type": "narrative"}],
+        14: [{"name": "Diamond Soul", "type": "narrative"}],
+    },
+    "Paladin": {
+        1:  [{"name": "Divine Sense", "type": "narrative"},
+             {"name": "Lay on Hands", "type": "scaling", "resource": "lay_on_hands", "formula": "level * 5"}],
+        2:  [{"name": "Fighting Style", "type": "narrative"},
+             {"name": "Spellcasting", "type": "narrative"},
+             {"name": "Divine Smite", "type": "narrative"}],
+        3:  [{"name": "Sacred Oath", "type": "narrative"},
+             {"name": "Channel Divinity", "type": "resource", "resource": "channel_divinity", "value": 1}],
+        5:  [{"name": "Extra Attack", "type": "flag", "flag": "extra_attack"}],
+        6:  [{"name": "Aura of Protection", "type": "narrative"}],
+        14: [{"name": "Cleansing Touch", "type": "narrative"}],
+    },
+    "Ranger": {
+        1:  [{"name": "Favored Enemy", "type": "narrative"},
+             {"name": "Natural Explorer", "type": "narrative"}],
+        2:  [{"name": "Fighting Style", "type": "narrative"},
+             {"name": "Spellcasting", "type": "narrative"}],
+        3:  [{"name": "Ranger Archetype", "type": "narrative"},
+             {"name": "Primeval Awareness", "type": "narrative"}],
+        5:  [{"name": "Extra Attack", "type": "flag", "flag": "extra_attack"}],
+        8:  [{"name": "Land's Stride", "type": "narrative"}],
+        10: [{"name": "Hide in Plain Sight", "type": "narrative"}],
+        14: [{"name": "Vanish", "type": "narrative"}],
+    },
+    "Rogue": {
+        1:  [{"name": "Sneak Attack", "type": "scaling", "resource": "sneak_attack_dice",
+              "formula": "(level + 1) // 2"},
+             {"name": "Thieves' Cant", "type": "narrative"},
+             {"name": "Expertise", "type": "narrative"}],
+        2:  [{"name": "Cunning Action", "type": "narrative"}],
+        3:  [{"name": "Roguish Archetype", "type": "narrative"}],
+        5:  [{"name": "Uncanny Dodge", "type": "narrative"}],
+        7:  [{"name": "Evasion", "type": "flag", "flag": "evasion"}],
+        11: [{"name": "Reliable Talent", "type": "narrative"}],
+        14: [{"name": "Blindsense", "type": "narrative"}],
+        20: [{"name": "Stroke of Luck", "type": "narrative"}],
+    },
+    "Sorcerer": {
+        1:  [{"name": "Spellcasting", "type": "narrative"},
+             {"name": "Sorcerous Origin", "type": "narrative"}],
+        2:  [{"name": "Sorcery Points", "type": "scaling", "resource": "sorcery_points",
+              "formula": "level"}],
+        3:  [{"name": "Metamagic", "type": "narrative"}],
+        20: [{"name": "Sorcerous Restoration", "type": "narrative"}],
+    },
+    "Warlock": {
+        1:  [{"name": "Otherworldly Patron", "type": "narrative"},
+             {"name": "Pact Magic", "type": "narrative"}],
+        2:  [{"name": "Eldritch Invocations", "type": "narrative"}],
+        3:  [{"name": "Pact Boon", "type": "narrative"}],
+        11: [{"name": "Mystic Arcanum", "type": "narrative"}],
+        20: [{"name": "Eldritch Master", "type": "narrative"}],
+    },
+    "Wizard": {
+        1:  [{"name": "Spellcasting", "type": "narrative"},
+             {"name": "Arcane Recovery", "type": "narrative"}],
+        2:  [{"name": "Arcane Tradition", "type": "narrative"}],
+        18: [{"name": "Spell Mastery", "type": "narrative"}],
+        20: [{"name": "Signature Spells", "type": "narrative"}],
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Spell progression
+# ---------------------------------------------------------------------------
+
+PREPARED_CASTERS = {"Cleric", "Druid", "Paladin"}
+SPELLS_LEARNED_PER_LEVEL: dict[str, int] = {
+    "Bard": 1, "Ranger": 1, "Sorcerer": 1, "Warlock": 1, "Wizard": 2,
+}
+
+# ---------------------------------------------------------------------------
 # Caster classification
 # ---------------------------------------------------------------------------
 
@@ -134,12 +279,78 @@ def apply_level_up(char: Character) -> dict:
     fighter_extra = {6, 14}
     asi = new_level in standard_asi or (char.class_name == "Fighter" and new_level in fighter_extra)
 
+    # --- Class features ---
+    features_gained: list[str] = []
+    for feat in CLASS_FEATURES.get(char.class_name, {}).get(new_level, []):
+        if feat["type"] == "resource":
+            char.class_resources[feat["resource"]] = feat["value"]
+        elif feat["type"] == "flag":
+            char.class_resources[feat["flag"]] = 1
+        elif feat["type"] == "scaling":
+            val = _eval_scaling(feat["formula"], new_level, char)
+            char.class_resources[feat["resource"]] = val
+        features_gained.append(feat["name"])
+
+    # Also update scaling resources at every level (not just feature-grant levels)
+    for level_feats in CLASS_FEATURES.get(char.class_name, {}).values():
+        for feat in level_feats:
+            if feat["type"] == "scaling" and feat["resource"] in char.class_resources:
+                char.class_resources[feat["resource"]] = _eval_scaling(
+                    feat["formula"], new_level, char
+                )
+
+    # --- Spell progression ---
+    spell_info: dict = {}
+    if new_slots:
+        max_spell_level = max(new_slots.keys())
+    else:
+        max_spell_level = 0
+
+    if char.class_name in PREPARED_CASTERS and max_spell_level > 0:
+        spell_info["prepared_caster"] = True
+        spell_info["max_spell_level"] = max_spell_level
+        spell_info["note"] = f"Can now prepare spells up to level {max_spell_level}"
+
+    if char.class_name in SPELLS_LEARNED_PER_LEVEL:
+        spell_info["spells_to_learn"] = SPELLS_LEARNED_PER_LEVEL[char.class_name]
+        spell_info["max_spell_level"] = max_spell_level
+
     return {
         "hp_gain": hp_gain,
         "new_max_hp": char.max_hp,
         "new_spell_slots": new_slots,
         "asi_available": asi,
+        "features_gained": features_gained,
+        "spell_progression": spell_info,
     }
+
+
+def _eval_scaling(formula: str, level: int, char: Character) -> int:
+    """Safely evaluate a scaling formula."""
+    # Build a safe namespace with level and ability modifiers
+    ns = {"level": level}
+    if hasattr(char, "ability_scores"):
+        for ability in ("STR", "DEX", "CON", "INT", "WIS", "CHA"):
+            ns[f"{ability}_mod"] = char.ability_scores.modifier(ability)
+    return int(max(1, eval(formula, {"__builtins__": {"max": max}}, ns)))  # noqa: S307
+
+
+def learn_spell(char: Character, spell_name: str, max_spell_level: int) -> dict:
+    """Add a spell to a character's known spells. Validates level and duplicates."""
+    if spell_name in char.known_spells:
+        return {"success": False, "error": f"{char.name} already knows {spell_name!r}."}
+    # Import here to avoid circular imports
+    from src.campaign.loader import get_spell
+    spell = get_spell(spell_name)
+    if spell is None:
+        return {"success": False, "error": f"Spell {spell_name!r} not found in SRD data."}
+    if spell.level > max_spell_level:
+        return {
+            "success": False,
+            "error": f"{spell_name!r} is level {spell.level}, but {char.name} can only learn up to level {max_spell_level}.",
+        }
+    char.known_spells.append(spell_name)
+    return {"success": True, "character": char.name, "spell_learned": spell_name, "spell_level": spell.level}
 
 
 # ---------------------------------------------------------------------------

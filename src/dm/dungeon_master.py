@@ -25,7 +25,10 @@ class DungeonMaster:
         self.game_state = game_state
         self.event_log = event_log
         self.context_manager = ContextManager(campaign, game_state)
-        self.tool_dispatcher = ToolDispatcher(game_state, event_log, save_path=save_path)
+        self.tool_dispatcher = ToolDispatcher(
+            game_state, event_log, save_path=save_path,
+            backend=self.backend, campaign=campaign,
+        )
 
     def process_player_input(self, player_input: str) -> str:
         """Process player input through the LLM loop, return narrative response."""

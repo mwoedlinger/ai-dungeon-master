@@ -178,6 +178,45 @@ def _create_default_game_state(campaign) -> GameState:
     )
 
 
+_AUTH_HELP = {
+    "anthropic": (
+        "ANTHROPIC_API_KEY",
+        "https://console.anthropic.com/settings/keys",
+        'export ANTHROPIC_API_KEY="sk-ant-..."',
+    ),
+    "gemini": (
+        "GOOGLE_API_KEY",
+        "https://aistudio.google.com/apikey",
+        'export GOOGLE_API_KEY="..."',
+    ),
+    "deepseek": (
+        "DEEPSEEK_API_KEY",
+        "https://platform.deepseek.com/api_keys",
+        'export DEEPSEEK_API_KEY="..."',
+    ),
+    "ollama": (
+        None,
+        None,
+        "Ensure Ollama is running: ollama serve",
+    ),
+}
+
+
+def _handle_auth_error(error: Exception, provider: str) -> None:
+    """Print a user-friendly message for authentication errors."""
+    env_var, url, example = _AUTH_HELP.get(provider, (None, None, None))
+    console.print(f"\n[bold red]Authentication error for provider '{provider}':[/bold red]")
+    console.print(f"  {error}\n")
+    if env_var:
+        console.print(f"[yellow]Set your API key as an environment variable:[/yellow]")
+        console.print(f"  [bold]{example}[/bold]\n")
+        console.print(f"[dim]Get your key at: {url}[/dim]")
+        console.print(f"[dim]Or add it to your shell profile (~/.zshrc or ~/.bashrc) to persist.[/dim]\n")
+    elif example:
+        console.print(f"[yellow]{example}[/yellow]\n")
+    sys.exit(1)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -219,14 +258,18 @@ def main() -> None:
     event_log = EventLog(game_state)
 
     # Set up DM
-    dm = DungeonMaster(
-        game_state=game_state,
-        campaign=campaign,
-        event_log=event_log,
-        provider=args.provider,
-        model=args.model,
-        save_path=args.autosave,
-    )
+    try:
+        dm = DungeonMaster(
+            game_state=game_state,
+            campaign=campaign,
+            event_log=event_log,
+            provider=args.provider,
+            model=args.model,
+            save_path=args.autosave,
+        )
+    except Exception as e:
+        _handle_auth_error(e, args.provider)
+        raise
 
     # Player names from characters
     player_names = [
@@ -237,7 +280,13 @@ def main() -> None:
 
     # Run session
     session = SessionManager(dm, game_state, event_log, player_names)
-    session.run()
+    try:
+        session.run()
+    except TypeError as e:
+        if "authentication" in str(e).lower() or "api_key" in str(e).lower():
+            _handle_auth_error(e, args.provider)
+        else:
+            raise
 
 
 if __name__ == "__main__":
