@@ -1,4 +1,4 @@
-# AI Dungeon Master
+# AI Dungeon Master 🧙‍♂️
 
 A Python CLI application that uses an LLM as a Dungeon Master for two-player local D&D 5e sessions. The core design principle: **the LLM is the creative brain, the Python engine is the rules arbiter**. The LLM narrates and interprets intent; it never computes numbers directly — it calls deterministic tool functions for all mechanical adjudication (dice rolls, HP tracking, spell slots, conditions, XP, etc.).
 
