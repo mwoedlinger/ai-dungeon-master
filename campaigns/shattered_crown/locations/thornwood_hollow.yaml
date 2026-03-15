@@ -1,0 +1,8 @@
+id: thornwood_hollow
+name: The Thornwood Hollow
+description: "A collapsed stone shrine to a forgotten nature god. The altar stone is cracked, and dark ichor seeps from the\
+  \ fissure. This is where Davan Mora made his bargain with whatever lurks in the Bleakwood. He is here now \u2014 the Cursed\
+  \ Son \u2014 neither truly alive nor dead, commanding the blights and ghouls with a feverish desperation."
+connected_to:
+- bleakwood_depths
+parent: null

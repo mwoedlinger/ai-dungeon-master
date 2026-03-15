@@ -1,0 +1,16 @@
+location_id: bleakwood_edge
+encounters:
+- description: A pack of twig blights emerge from the underbrush, twigs scraping as they move.
+  monster_ids:
+  - twig_blight
+  - twig_blight
+  - twig_blight
+  - twig_blight
+  difficulty: easy
+  trigger: random
+- description: "A lone wolf circles the party, its eyes faintly luminous \u2014 it serves the entity."
+  monster_ids:
+  - wolf
+  - wolf
+  difficulty: easy
+  trigger: random

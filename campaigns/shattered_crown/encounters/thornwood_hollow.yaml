@@ -1,0 +1,7 @@
+location_id: thornwood_hollow
+encounters:
+- description: "Davan Mora \u2014 the Cursed Son \u2014 emerges from the ruins, his form warped by dark magic."
+  monster_ids:
+  - ghoul
+  difficulty: deadly
+  trigger: scripted

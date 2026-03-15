@@ -1,0 +1,7 @@
+id: lights_in_the_forest
+title: Strange Lights
+description: Local children claim to see pale green lights moving through the Bleakwood at night. The lights seem to follow
+  a path deeper into the forest. Bram the innkeeper dismisses it as will-o-wisps, but his voice shakes when he says it.
+trigger_location: broken_antler_tavern
+connected_npcs:
+- bram_innkeeper

@@ -1,0 +1,11 @@
+id: elder_mora
+name: Elder Mora
+location: broken_antler_tavern
+personality: Cautious and maternal, speaks in proverbs and half-truths, avoids direct answers, deflects with questions about
+  the party's past. Sighs often. Her hands never quite stop moving.
+goals: "Protect the village from the curse and keep her son's involvement secret \u2014 though she knows the secret is destroying\
+  \ her."
+secret: Her son Davan made a bargain with a dark entity in the Bleakwood to cure his illness. The bargain twisted him into
+  the Cursed Son who commands the blights. She has been sending 'offerings' (stolen cattle, gold) to the forest hoping to
+  appease whatever he's become.
+disposition: friendly

@@ -122,7 +122,7 @@ class ContextManager:
 
     def _current_location_context(self) -> str:
         loc_id = self.game_state.world.current_location_id
-        return self.campaign.get_location_context(loc_id)
+        return self.campaign.get_location_context(loc_id, token_budget=1500)
 
     def _active_characters_compact(self) -> str:
         lines = ["## Active Characters"]

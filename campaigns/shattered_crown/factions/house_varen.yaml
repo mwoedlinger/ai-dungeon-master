@@ -1,0 +1,9 @@
+id: house_varen
+name: House Varen
+description: Military-minded noble house controlling the western provinces. Their soldiers occasionally pass through on the
+  King's Road.
+goals: Claim the throne by force if necessary. Maintain control of trade routes.
+allies:
+- Thornfield Militia
+enemies:
+- House Delmara

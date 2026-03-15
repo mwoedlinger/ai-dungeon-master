@@ -1,0 +1,8 @@
+id: missing_woodcutters
+title: The Missing Woodcutters
+description: "Three woodcutters \u2014 Pell, Orin, and Sasha \u2014 vanished near the Bleakwood Edge last month. Their families\
+  \ are desperate. Elder Mora offers 50 gold pieces for information about what happened to them."
+trigger_location: thornfield
+connected_npcs:
+- elder_mora
+- bram_innkeeper

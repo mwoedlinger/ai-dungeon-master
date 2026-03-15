@@ -10,6 +10,7 @@ class Location(BaseModel):
     id: str
     name: str
     description: str
+    parent: str | None = None
     connected_to: list[str] = []
 
 

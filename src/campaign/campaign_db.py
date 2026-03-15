@@ -1,12 +1,23 @@
-"""Campaign data models and database."""
+"""Campaign data models, index, and lazy-loading database."""
 from __future__ import annotations
 
+from collections import OrderedDict
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
+
+import yaml
 from pydantic import BaseModel
+
 from src.models.world import Location
 
 
+# ---------------------------------------------------------------------------
+# Entity models
+# ---------------------------------------------------------------------------
+
 class Faction(BaseModel):
+    id: str = ""
     name: str
     description: str
     goals: str
@@ -15,6 +26,7 @@ class Faction(BaseModel):
 
 
 class NPCProfile(BaseModel):
+    id: str = ""
     name: str
     location: str
     personality: str
@@ -38,81 +50,447 @@ class EncounterTemplate(BaseModel):
     trigger: str = "random"
 
 
-class CampaignData(BaseModel):
+class EncounterTable(BaseModel):
+    """Wrapper for a location's encounter list (used in directory-based campaigns)."""
+    location_id: str
+    encounters: list[EncounterTemplate]
+
+
+# Map from entity type string to model class
+ENTITY_MODELS: dict[str, type[BaseModel]] = {
+    "location": Location,
+    "npc": NPCProfile,
+    "faction": Faction,
+    "plot_hook": PlotHook,
+    "encounter": EncounterTable,
+}
+
+
+# ---------------------------------------------------------------------------
+# Campaign index (lightweight, built at startup)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class EntityRef:
+    """Pointer to an entity on disk — no content loaded."""
+    entity_type: str
+    entity_id: str
+    file_path: Path
+    name: str
+
+
+@dataclass
+class CampaignIndex:
+    """Lightweight index built by scanning a campaign directory."""
     title: str
     setting_overview: str
-    locations: dict[str, Location]
-    factions: list[Faction] = []
-    key_npcs: dict[str, NPCProfile] = {}
-    plot_hooks: list[PlotHook] = []
-    encounter_tables: dict[str, list[EncounterTemplate]] = {}
-    starting_location_id: str = ""
+    starting_location_id: str
+    refs: dict[tuple[str, str], EntityRef] = field(default_factory=dict)
 
-    def get_location_context(self, location_id: str) -> str:
-        """Return narrative context for the current location."""
-        loc = self.locations.get(location_id)
+    def ids_of_type(self, entity_type: str) -> list[str]:
+        return [eid for (etype, eid) in self.refs if etype == entity_type]
+
+
+# ---------------------------------------------------------------------------
+# LRU cache
+# ---------------------------------------------------------------------------
+
+class _LRUCache:
+    """Simple ordered-dict LRU cache with a max size."""
+
+    def __init__(self, max_size: int = 50):
+        self._max_size = max_size
+        self._data: OrderedDict[tuple[str, str], BaseModel] = OrderedDict()
+
+    def get(self, key: tuple[str, str]) -> BaseModel | None:
+        if key in self._data:
+            self._data.move_to_end(key)
+            return self._data[key]
+        return None
+
+    def put(self, key: tuple[str, str], value: BaseModel) -> None:
+        if key in self._data:
+            self._data.move_to_end(key)
+        else:
+            if len(self._data) >= self._max_size:
+                self._data.popitem(last=False)
+        self._data[key] = value
+
+    def __contains__(self, key: tuple[str, str]) -> bool:
+        return key in self._data
+
+
+# ---------------------------------------------------------------------------
+# CampaignData — unified interface for both legacy JSON and directory campaigns
+# ---------------------------------------------------------------------------
+
+class CampaignData:
+    """Campaign database with lazy loading and hierarchical location support.
+
+    Works in two modes:
+    - Legacy: constructed from a flat dict (single JSON file). All data in memory.
+    - Directory: constructed from a CampaignIndex. Entities loaded on demand.
+    """
+
+    def __init__(
+        self,
+        *,
+        # Legacy fields (populated when loading from JSON)
+        title: str = "",
+        setting_overview: str = "",
+        starting_location_id: str = "",
+        locations: dict[str, Location] | None = None,
+        factions: list[Faction] | None = None,
+        key_npcs: dict[str, NPCProfile] | None = None,
+        plot_hooks: list[PlotHook] | None = None,
+        encounter_tables: dict[str, list[EncounterTemplate]] | None = None,
+        # Directory mode
+        index: CampaignIndex | None = None,
+    ):
+        if index is not None:
+            # Directory-based campaign
+            self.title = index.title
+            self.setting_overview = index.setting_overview
+            self.starting_location_id = index.starting_location_id
+            self._index = index
+            self._cache = _LRUCache(max_size=50)
+            self._legacy = False
+        else:
+            # Legacy JSON campaign — store everything eagerly
+            self.title = title
+            self.setting_overview = setting_overview
+            self.starting_location_id = starting_location_id
+            self._index = None
+            self._cache = _LRUCache(max_size=50)
+            self._legacy = True
+            # Store legacy data directly
+            self._locations = locations or {}
+            self._factions = factions or []
+            self._key_npcs = key_npcs or {}
+            self._plot_hooks = plot_hooks or []
+            self._encounter_tables = encounter_tables or {}
+
+    # ------------------------------------------------------------------
+    # Legacy-compatible property: .locations
+    # ------------------------------------------------------------------
+
+    @property
+    def locations(self) -> dict[str, Location]:
+        """All locations. For legacy mode returns stored dict.
+        For directory mode, loads all locations (used by main.py for world init)."""
+        if self._legacy:
+            return self._locations
+        result = {}
+        for eid in self._index.ids_of_type("location"):
+            result[eid] = self.get_location(eid)
+        return result
+
+    @property
+    def plot_hooks(self) -> list[PlotHook]:
+        if self._legacy:
+            return self._plot_hooks
+        hooks = []
+        for eid in self._index.ids_of_type("plot_hook"):
+            hooks.append(self.get_entity("plot_hook", eid))
+        return hooks
+
+    @property
+    def factions(self) -> list[Faction]:
+        if self._legacy:
+            return self._factions
+        return [self.get_entity("faction", eid) for eid in self._index.ids_of_type("faction")]
+
+    @property
+    def key_npcs(self) -> dict[str, NPCProfile]:
+        if self._legacy:
+            return self._key_npcs
+        result = {}
+        for eid in self._index.ids_of_type("npc"):
+            result[eid] = self.get_npc(eid)
+        return result
+
+    @property
+    def encounter_tables(self) -> dict[str, list[EncounterTemplate]]:
+        if self._legacy:
+            return self._encounter_tables
+        result = {}
+        for eid in self._index.ids_of_type("encounter"):
+            table: EncounterTable = self.get_entity("encounter", eid)
+            result[table.location_id] = table.encounters
+        return result
+
+    # ------------------------------------------------------------------
+    # Entity access (lazy for directory mode, direct for legacy)
+    # ------------------------------------------------------------------
+
+    def get_location(self, location_id: str) -> Location | None:
+        if self._legacy:
+            return self._locations.get(location_id)
+        return self._load("location", location_id)
+
+    def get_npc(self, npc_id: str) -> NPCProfile | None:
+        if self._legacy:
+            return self._key_npcs.get(npc_id)
+        return self._load("npc", npc_id)
+
+    def get_entity(self, entity_type: str, entity_id: str) -> BaseModel | None:
+        if self._legacy:
+            match entity_type:
+                case "location":
+                    return self._locations.get(entity_id)
+                case "npc":
+                    return self._key_npcs.get(entity_id)
+                case "faction":
+                    for f in self._factions:
+                        if f.id == entity_id or f.name.lower().replace(" ", "_") == entity_id:
+                            return f
+                    return None
+                case "plot_hook":
+                    for h in self._plot_hooks:
+                        if h.id == entity_id:
+                            return h
+                    return None
+                case "encounter":
+                    if entity_id in self._encounter_tables:
+                        return EncounterTable(
+                            location_id=entity_id,
+                            encounters=self._encounter_tables[entity_id],
+                        )
+                    return None
+                case _:
+                    return None
+        return self._load(entity_type, entity_id)
+
+    def _load(self, entity_type: str, entity_id: str) -> BaseModel | None:
+        """Load an entity from disk (with LRU caching)."""
+        key = (entity_type, entity_id)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+
+        if self._index is None or key not in self._index.refs:
+            return None
+
+        ref = self._index.refs[key]
+        raw = yaml.safe_load(ref.file_path.read_text())
+        model_cls = ENTITY_MODELS[entity_type]
+        obj = model_cls.model_validate(raw)
+        self._cache.put(key, obj)
+        return obj
+
+    # ------------------------------------------------------------------
+    # Hierarchical location helpers
+    # ------------------------------------------------------------------
+
+    def get_children(self, location_id: str) -> list[Location]:
+        """Return all direct child locations of the given location."""
+        children = []
+        if self._legacy:
+            for loc in self._locations.values():
+                if loc.parent == location_id:
+                    children.append(loc)
+        else:
+            for eid in self._index.ids_of_type("location"):
+                loc = self.get_location(eid)
+                if loc and loc.parent == location_id:
+                    children.append(loc)
+        return children
+
+    def get_all_sub_location_ids(self, location_id: str) -> list[str]:
+        """Return all descendant location IDs (recursive)."""
+        result = []
+        for child in self.get_children(location_id):
+            result.append(child.id)
+            result.extend(self.get_all_sub_location_ids(child.id))
+        return result
+
+    def get_npcs_at_location(self, location_id: str, include_children: bool = True) -> list[NPCProfile]:
+        """Return NPCs at a location. If include_children, also includes sub-locations."""
+        loc_ids = {location_id}
+        if include_children:
+            loc_ids.update(self.get_all_sub_location_ids(location_id))
+
+        npcs = []
+        if self._legacy:
+            for npc in self._key_npcs.values():
+                if npc.location in loc_ids:
+                    npcs.append(npc)
+        else:
+            for eid in self._index.ids_of_type("npc"):
+                npc = self.get_npc(eid)
+                if npc and npc.location in loc_ids:
+                    npcs.append(npc)
+        return npcs
+
+    def get_connected_locations(self, location_id: str) -> list[Location]:
+        """Return connected locations = explicit connected_to + direct children."""
+        loc = self.get_location(location_id)
+        if not loc:
+            return []
+        result = []
+        for cid in loc.connected_to:
+            connected = self.get_location(cid)
+            if connected:
+                result.append(connected)
+        for child in self.get_children(location_id):
+            if child.id not in loc.connected_to:
+                result.append(child)
+        return result
+
+    # ------------------------------------------------------------------
+    # Context & query (public API — unchanged interface)
+    # ------------------------------------------------------------------
+
+    def get_location_context(self, location_id: str, token_budget: int = 1500) -> str:
+        """Build context for system prompt, staying within token budget."""
+        loc = self.get_location(location_id)
         if not loc:
             return f"Unknown location: {location_id}"
-
-        nearby = [
-            self.locations[n].name
-            for n in loc.connected_to
-            if n in self.locations
-        ]
-        npcs_here = [n for n in self.key_npcs.values() if n.location == location_id]
 
         lines = [
             f"## Current Location: {loc.name}",
             loc.description,
         ]
-        if nearby:
-            lines.append(f"**Nearby**: {', '.join(nearby)}")
+        used = self._estimate_str_tokens("\n".join(lines))
+
+        # NPCs present (including sub-locations)
+        npcs_here = self.get_npcs_at_location(location_id, include_children=True)
         if npcs_here:
             npc_summaries = []
             for npc in npcs_here:
-                npc_summaries.append(f"{npc.name} ({npc.disposition}): {npc.personality[:80]}")
-            lines.append("**NPCs present**: " + "; ".join(npc_summaries))
+                summary = f"{npc.name} ({npc.disposition}): {npc.personality[:80]}"
+                cost = self._estimate_str_tokens(summary)
+                if used + cost > token_budget:
+                    break
+                npc_summaries.append(summary)
+                used += cost
+            if npc_summaries:
+                lines.append("**NPCs present**: " + "; ".join(npc_summaries))
 
+        # Nearby locations (name only)
+        nearby = self.get_connected_locations(location_id)
+        if nearby:
+            nearby_str = ", ".join(n.name for n in nearby)
+            cost = self._estimate_str_tokens(nearby_str)
+            if used + cost <= token_budget:
+                lines.append(f"**Nearby**: {nearby_str}")
+                used += cost
+
+        # Active plot hooks (title only)
         hooks = self.get_relevant_plot_hooks(location_id)
         if hooks:
-            lines.append("**Plot hooks**: " + "; ".join(h.title for h in hooks))
+            hooks_str = "; ".join(h.title for h in hooks)
+            cost = self._estimate_str_tokens(hooks_str)
+            if used + cost <= token_budget:
+                lines.append("**Plot hooks**: " + hooks_str)
 
         return "\n".join(lines)
 
     def get_relevant_plot_hooks(self, location_id: str) -> list[PlotHook]:
-        return [h for h in self.plot_hooks if h.trigger_location == location_id]
+        """Plot hooks triggered at this location or its sub-locations."""
+        loc_ids = {location_id}
+        loc_ids.update(self.get_all_sub_location_ids(location_id))
+
+        if self._legacy:
+            return [h for h in self._plot_hooks if h.trigger_location in loc_ids]
+
+        hooks = []
+        for eid in self._index.ids_of_type("plot_hook"):
+            hook = self.get_entity("plot_hook", eid)
+            if hook and hook.trigger_location in loc_ids:
+                hooks.append(hook)
+        return hooks
 
     def query(self, query_type: str, id: str) -> dict:
         """Handle query_world_lore tool calls from the LLM."""
         match query_type:
             case "location":
-                loc = self.locations.get(id)
+                loc = self.get_location(id)
                 if not loc:
                     return {"success": False, "error": f"Location {id!r} not found."}
-                nearby_names = {n: self.locations[n].name for n in loc.connected_to if n in self.locations}
-                npcs_here = {k: v.model_dump() for k, v in self.key_npcs.items() if v.location == id}
+                connected = self.get_connected_locations(id)
+                nearby_names = {c.id: c.name for c in connected}
+                npcs_here = self.get_npcs_at_location(id)
+                npcs_dict = {npc.id or npc.name: npc.model_dump() for npc in npcs_here}
                 encounters = self.encounter_tables.get(id, [])
                 return {
                     "success": True,
                     "location": loc.model_dump(),
                     "connected_to_names": nearby_names,
-                    "npcs_present": npcs_here,
+                    "npcs_present": npcs_dict,
                     "possible_encounters": [e.model_dump() for e in encounters],
                 }
             case "npc":
-                npc = self.key_npcs.get(id)
+                npc = self.get_npc(id)
                 if not npc:
-                    return {"success": False, "error": f"NPC {id!r} not found."}
+                    # Try by iterating (legacy compat)
+                    if self._legacy:
+                        npc = self._key_npcs.get(id)
+                    if not npc:
+                        return {"success": False, "error": f"NPC {id!r} not found."}
                 return {"success": True, "npc": npc.model_dump()}
             case "faction":
-                for f in self.factions:
-                    if f.name.lower().replace(" ", "_") == id.lower() or f.name == id:
-                        return {"success": True, "faction": f.model_dump()}
-                return {"success": False, "error": f"Faction {id!r} not found."}
+                entity = self.get_entity("faction", id)
+                if not entity:
+                    # Legacy: try name match
+                    if self._legacy:
+                        for f in self._factions:
+                            if f.name.lower().replace(" ", "_") == id.lower() or f.name == id:
+                                return {"success": True, "faction": f.model_dump()}
+                    return {"success": False, "error": f"Faction {id!r} not found."}
+                return {"success": True, "faction": entity.model_dump()}
             case "plot_hook":
-                for h in self.plot_hooks:
-                    if h.id == id:
-                        return {"success": True, "plot_hook": h.model_dump()}
-                return {"success": False, "error": f"Plot hook {id!r} not found."}
+                entity = self.get_entity("plot_hook", id)
+                if not entity:
+                    return {"success": False, "error": f"Plot hook {id!r} not found."}
+                return {"success": True, "plot_hook": entity.model_dump()}
             case _:
                 return {"success": False, "error": f"Unknown query_type: {query_type!r}"}
+
+    @staticmethod
+    def _estimate_str_tokens(s: str) -> int:
+        """Rough token estimate: ~4 chars per token."""
+        return len(s) // 4
+
+    # ------------------------------------------------------------------
+    # Legacy factory (from flat dict, e.g. JSON load)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_dict(cls, data: dict) -> CampaignData:
+        """Create from a flat dictionary (legacy JSON format)."""
+        locations = {}
+        for lid, loc_data in data.get("locations", {}).items():
+            locations[lid] = Location.model_validate(loc_data)
+
+        factions = [Faction.model_validate(f) for f in data.get("factions", [])]
+        # Assign IDs to factions if missing
+        for f in factions:
+            if not f.id:
+                f.id = f.name.lower().replace(" ", "_")
+
+        key_npcs = {}
+        for nid, npc_data in data.get("key_npcs", {}).items():
+            npc = NPCProfile.model_validate(npc_data)
+            if not npc.id:
+                npc.id = nid
+            key_npcs[nid] = npc
+
+        plot_hooks = [PlotHook.model_validate(h) for h in data.get("plot_hooks", [])]
+
+        encounter_tables = {}
+        for loc_id, enc_list in data.get("encounter_tables", {}).items():
+            encounter_tables[loc_id] = [
+                EncounterTemplate.model_validate(e) for e in enc_list
+            ]
+
+        return cls(
+            title=data.get("title", ""),
+            setting_overview=data.get("setting_overview", ""),
+            starting_location_id=data.get("starting_location_id", ""),
+            locations=locations,
+            factions=factions,
+            key_npcs=key_npcs,
+            plot_hooks=plot_hooks,
+            encounter_tables=encounter_tables,
+        )

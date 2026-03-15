@@ -9,7 +9,7 @@ from pathlib import Path
 # Ensure src is on the path when running as a script
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.campaign.loader import load_campaign, load_srd_data
+from src.campaign.loader import load_campaign, load_srd_data, validate_campaign
 from src.dm.dungeon_master import DungeonMaster
 from src.engine.game_state import GameState
 from src.interface.cli import console
@@ -22,8 +22,8 @@ from src.models.world import Location, Quest, WorldState
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="AI Dungeon Master")
-    p.add_argument("--campaign", default="campaigns/shattered_crown.json",
-                   help="Path to campaign JSON file")
+    p.add_argument("--campaign", default="campaigns/shattered_crown",
+                   help="Path to campaign (JSON file or YAML directory)")
     p.add_argument("--save", default=None, help="Path to save file (load existing)")
     p.add_argument("--new", action="store_true", help="Start a new game (ignore --save)")
     p.add_argument("--provider", default="anthropic",
@@ -38,6 +38,8 @@ def parse_args() -> argparse.Namespace:
                    help="Path to starting characters JSON (for new games)")
     p.add_argument("--autosave", default="saves/autosave.json",
                    help="Path for auto-save file")
+    p.add_argument("--validate-campaign", action="store_true",
+                   help="Validate campaign cross-references and exit")
     return p.parse_args()
 
 
@@ -183,14 +185,31 @@ def main() -> None:
     load_srd_data()
     console.print("[dim]SRD data loaded.[/dim]")
 
-    # Load campaign
+    # Load campaign (try directory first, then .json fallback)
     campaign_path = Path(args.campaign)
     if not campaign_path.exists():
-        console.print(f"[red]Campaign file not found: {campaign_path}[/red]")
-        sys.exit(1)
+        # If given without extension, try adding .json
+        json_fallback = campaign_path.with_suffix(".json")
+        if json_fallback.exists():
+            campaign_path = json_fallback
+        else:
+            console.print(f"[red]Campaign not found: {campaign_path}[/red]")
+            sys.exit(1)
 
     campaign = load_campaign(campaign_path)
     console.print(f"[dim]Campaign loaded: {campaign.title}[/dim]")
+
+    # Validate-only mode
+    if args.validate_campaign:
+        errors = validate_campaign(campaign)
+        if errors:
+            console.print("[red]Campaign validation failed:[/red]")
+            for err in errors:
+                console.print(f"  [red]• {err}[/red]")
+            sys.exit(1)
+        else:
+            console.print("[green]Campaign validation passed — all references OK.[/green]")
+            sys.exit(0)
 
     # Load or create game state
     game_state = load_game_state(args, campaign)
