@@ -334,7 +334,7 @@ _STATE_TOOLS = [
     },
     {
         "name": "use_action_surge",
-        "description": "Use Action Surge (Fighter). Grants an additional action this turn. Consumes one charge.",
+        "description": "Use Action Surge (Fighter). Grants an additional action this turn. Consumes one charge. ONLY call when the player explicitly requests it.",
         "input_schema": {
             "type": "object",
             "properties": {"character_id": {"type": "string"}},
@@ -667,6 +667,8 @@ class ToolDispatcher:
 
             case "use_action_surge":
                 char = gs.get_character(inputs["character_id"])
+                if not char.is_player:
+                    return {"success": False, "error": "Only player characters can use Action Surge."}
                 charges = char.class_resources.get("action_surge", 0)
                 if charges <= 0:
                     return {"success": False, "error": f"{char.name} has no Action Surge charges."}

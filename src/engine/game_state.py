@@ -4,17 +4,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
-
 from src.engine.progression import apply_level_up
 from src.engine.rules import xp_for_level
 from src.models.character import Character
 from src.models.combat import CombatState
 from src.models.monster import Monster
-from src.models.world import Location, Quest, WorldState
-
-if TYPE_CHECKING:
-    pass
+from src.models.world import WorldState
 
 
 @dataclass

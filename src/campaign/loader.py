@@ -19,8 +19,6 @@ _DATA_DIR = Path(__file__).parent.parent / "data" / "srd"
 # Module-level caches populated by load_srd_data()
 _spells: dict[str, SpellData] = {}
 _monsters: dict[str, dict] = {}  # raw dicts, instantiated fresh each time
-_classes: dict[str, dict] = {}
-_items: dict = {}
 
 # Mapping from subdirectory name to entity type
 _DIR_TO_TYPE = {
@@ -34,7 +32,7 @@ _DIR_TO_TYPE = {
 
 def load_srd_data() -> None:
     """Load all SRD data into module-level caches."""
-    global _spells, _monsters, _classes, _items
+    global _spells, _monsters
 
     spells_path = _DATA_DIR / "spells.json"
     if spells_path.exists():
@@ -46,13 +44,6 @@ def load_srd_data() -> None:
         raw = json.loads(monsters_path.read_text())
         _monsters = {m["id"]: m for m in raw}
 
-    classes_path = _DATA_DIR / "classes.json"
-    if classes_path.exists():
-        _classes = json.loads(classes_path.read_text())
-
-    items_path = _DATA_DIR / "items.json"
-    if items_path.exists():
-        _items = json.loads(items_path.read_text())
 
 
 def get_spell(name: str) -> SpellData | None:
@@ -66,11 +57,6 @@ def get_monster_template(monster_id: str) -> Monster:
     if raw is None:
         raise KeyError(f"Monster template not found: {monster_id!r}")
     return Monster.model_validate(json.loads(json.dumps(raw)))
-
-
-def get_class_data(class_name: str) -> dict:
-    """Return class data dict (hit_die, spell_slots_by_level, etc.)."""
-    return _classes.get(class_name, {})
 
 
 # ---------------------------------------------------------------------------

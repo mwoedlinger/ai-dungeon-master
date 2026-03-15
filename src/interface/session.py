@@ -100,16 +100,21 @@ class SessionManager:
             self.mode = TurnMode.EXPLORATION
             return
 
-        display_combat_state(self.game_state)
-        console.print("")
-
+        # Auto-skip dead combatants without involving the LLM
         current_id = combat.current_combatant_id
         try:
             current_char = self.game_state.get_character(current_id)
         except KeyError:
-            # Turn order has a stale ID; advance
-            self.dm.process_player_input("[end_turn — stale combatant]")
+            from src.engine.combat import end_turn
+            end_turn(self.game_state)
             return
+        if current_char.hp <= 0 or "dead" in current_char.conditions:
+            from src.engine.combat import end_turn
+            end_turn(self.game_state)
+            return
+
+        display_combat_state(self.game_state)
+        console.print("")
 
         if current_char.is_player:
             prompt = f"[{current_char.name}'s turn] > "

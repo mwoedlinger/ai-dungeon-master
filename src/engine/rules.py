@@ -196,7 +196,9 @@ def apply_healing(target: Character, amount: int) -> dict:
 
 
 def apply_condition(target: Character, condition: str, duration_rounds: int | None = None) -> dict:
-    """Apply a condition to a character."""
+    """Apply a condition to a character. Respects monster condition immunities."""
+    if isinstance(target, Monster) and condition in target.condition_immunities:
+        return {"applied": None, "target": target.name, "note": f"immune to {condition}"}
     if condition not in target.conditions:
         target.conditions.append(condition)
     return {"applied": condition, "target": target.name, "duration_rounds": duration_rounds}

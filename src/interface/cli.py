@@ -209,6 +209,9 @@ def display_combat_state(game_state: "GameState") -> None:
         except KeyError:
             continue
         c = combat.combatants[cid]
+        # Skip dead combatants from the display
+        if char.hp <= 0 or "dead" in char.conditions:
+            continue
         marker = "[bold cyan]\u2192[/bold cyan] " if i == combat.current_turn_index else "  "
         actions = []
         if c.has_action:

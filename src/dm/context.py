@@ -160,12 +160,15 @@ class ContextManager:
         lines = [
             "## COMBAT ACTIVE",
             f"Round {combat.round}",
-            "Initiative order:",
+            "Initiative order (dead/defeated combatants omitted):",
         ]
         for i, cid in enumerate(combat.turn_order):
             try:
                 char = self.game_state.get_character(cid)
             except KeyError:
+                continue
+            # Omit dead combatants — their turns are auto-skipped
+            if char.hp <= 0 or "dead" in char.conditions:
                 continue
             marker = "→ " if i == combat.current_turn_index else "  "
             c = combat.combatants[cid]
@@ -178,7 +181,7 @@ class ContextManager:
                 actions.append("reaction")
             action_str = ", ".join(actions) if actions else "no actions remaining"
             lines.append(
-                f"{marker}{char.name} (Init {c.initiative}) — "
+                f"{marker}{char.name} [{cid}] (Init {c.initiative}) — "
                 f"{char.hp}/{char.max_hp} HP [{action_str}]"
             )
         return "\n".join(lines)
