@@ -160,6 +160,50 @@ def _cmd_location(args: str, ctx: CommandContext) -> None:
     console.print(Panel(description, title=f"[bold cyan]{loc.name}[/bold cyan]", border_style="cyan"))
 
 
+def _cmd_journal(args: str, ctx: CommandContext) -> None:
+    """Show the world journal — recorded events and NPC attitudes."""
+    journal = ctx.game_state.journal
+
+    lines: list[str] = []
+
+    # Global summary
+    if journal.global_summary:
+        lines.append("[bold]Story So Far[/bold]")
+        lines.append(journal.global_summary)
+        lines.append("")
+
+    # NPC attitudes
+    if journal.npc_attitudes:
+        lines.append("[bold]NPC Attitudes[/bold]")
+        for npc_id, att in journal.npc_attitudes.items():
+            color = {"friendly": "green", "neutral": "yellow", "hostile": "red", "fearful": "magenta"}.get(att.disposition, "dim")
+            note = f" — {att.notes}" if att.notes else ""
+            lines.append(f"  [{color}]{npc_id}: {att.disposition}[/{color}]{note}")
+        lines.append("")
+
+    # World flags
+    if journal.world_flags:
+        lines.append("[bold]World Flags[/bold]")
+        for flag, value in journal.world_flags.items():
+            lines.append(f"  {flag}: {value}")
+        lines.append("")
+
+    # Recent events
+    recent = journal.get_recent_entries(limit=15)
+    if recent:
+        lines.append("[bold]Recent Events[/bold]")
+        for e in recent:
+            icon = "★" if e.importance == "major" else "·"
+            loc = f" [{e.location_id}]" if e.location_id else ""
+            lines.append(f"  {icon} {e.event}{loc}")
+
+    if not lines:
+        console.print("[dim]No journal entries yet.[/dim]")
+        return
+
+    console.print(Panel("\n".join(lines), title="[bold]World Journal[/bold]", border_style="cyan", padding=(1, 2)))
+
+
 def _cmd_recap(args: str, ctx: CommandContext) -> None:
     """Generate a narrative recap of the session so far."""
     console.print("[dim]Generating session recap...[/dim]")
@@ -269,6 +313,7 @@ COMMANDS: dict[str, tuple] = {
     "inventory": (_cmd_inventory, "Show party inventory"),
     "inv":       (_cmd_inventory, "Show party inventory (alias)"),
     "location":  (_cmd_location,  "Describe current location (cached)"),
+    "journal":   (_cmd_journal,   "Show world journal and NPC attitudes"),
     "recap":     (_cmd_recap,     "Narrative recap of the session"),
 }
 

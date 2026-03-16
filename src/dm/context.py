@@ -44,7 +44,12 @@ class ContextManager:
         dynamic_parts = [self._active_characters_compact()]
         if self.game_state.combat.active:
             dynamic_parts.append(self._combat_state_block())
-        if self.story_summary:
+        # Journal context: NPC attitudes, world flags, location notes, global summary
+        journal_block = self._journal_context()
+        if journal_block:
+            dynamic_parts.append(journal_block)
+        elif self.story_summary:
+            # Fallback to old story summary if no journal entries yet
             dynamic_parts.append(f"## Story So Far\n{self.story_summary}")
         dynamic = "\n\n".join(s for s in dynamic_parts if s)
 
@@ -119,6 +124,47 @@ class ContextManager:
                 content = " ".join(text_parts)
             parts.append(f"{role}: {content}")
         return "\n".join(parts)
+
+    def _journal_context(self) -> str:
+        """Build journal context block for the system prompt."""
+        from src.engine.journal_manager import JournalManager
+        journal = self.game_state.journal
+        # Use a lightweight JournalManager just for context building (no backend needed)
+        loc_id = self.game_state.world.current_location_id
+        parts: list[str] = []
+
+        if journal.global_summary:
+            parts.append(f"## Story So Far\n{journal.global_summary}")
+
+        if journal.npc_attitudes:
+            lines = ["## NPC Attitudes (override campaign defaults)"]
+            for npc_id, att in journal.npc_attitudes.items():
+                note = f" — {att.notes}" if att.notes else ""
+                lines.append(f"- {npc_id}: {att.disposition}{note}")
+            parts.append("\n".join(lines))
+
+        if journal.world_flags:
+            lines = ["## World State Flags"]
+            for flag, value in journal.world_flags.items():
+                lines.append(f"- {flag}: {value}")
+            parts.append("\n".join(lines))
+
+        loc_entries = journal.get_location_entries(loc_id, limit=15)
+        if loc_entries:
+            lines = ["## Events at Current Location"]
+            for e in loc_entries:
+                npcs = f" (NPCs: {', '.join(e.involved_npcs)})" if e.involved_npcs else ""
+                lines.append(f"- {e.event}{npcs}")
+            parts.append("\n".join(lines))
+
+        recent_major = journal.global_entries[-5:]
+        if recent_major:
+            lines = ["## Recent Major Events"]
+            for e in recent_major:
+                lines.append(f"- {e.event}")
+            parts.append("\n".join(lines))
+
+        return "\n\n".join(parts)
 
     def _current_location_context(self) -> str:
         loc_id = self.game_state.world.current_location_id

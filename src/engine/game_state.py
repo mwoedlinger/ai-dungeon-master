@@ -8,6 +8,7 @@ from src.engine.progression import apply_level_up
 from src.engine.rules import xp_for_level
 from src.models.character import Character
 from src.models.combat import CombatState
+from src.models.journal import WorldJournal
 from src.models.monster import Monster
 from src.models.world import WorldState
 
@@ -20,6 +21,7 @@ class GameState:
     characters: dict[str, Character]  # includes monsters when active
     world: WorldState
     combat: CombatState = field(default_factory=CombatState)
+    journal: WorldJournal = field(default_factory=WorldJournal)
     # Campaign reference injected after construction
     campaign: object = field(default=None, repr=False)
 
@@ -138,6 +140,7 @@ class GameState:
             },
             "world": self.world.model_dump(),
             "combat": self.combat.model_dump(),
+            "journal": self.journal.model_dump(),
         }
         path.write_text(json.dumps(data, indent=2))
 
@@ -151,11 +154,13 @@ class GameState:
         world_data = data["world"]
         world = WorldState.model_validate(world_data)
         combat = CombatState.model_validate(data.get("combat", {}))
+        journal = WorldJournal.model_validate(data.get("journal", {}))
 
         return cls(
             player_character_ids=data["player_character_ids"],
             characters=characters,
             world=world,
             combat=combat,
+            journal=journal,
             campaign=campaign,
         )

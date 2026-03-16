@@ -402,6 +402,58 @@ _STATE_TOOLS = [
         },
     },
     {
+        "name": "record_event",
+        "description": "Record a significant event in the world journal. Call after: NPC conversations (summarize what was discussed/learned), combat outcomes, important discoveries, story decisions, faction changes. Write a concise one-line summary.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event": {"type": "string", "description": "Concise summary: 'Elder Mora revealed her son is cursed' or 'Party defeated 3 ghouls in the Bleakwood'"},
+                "location_id": {"type": "string", "description": "Location where this happened (defaults to current)"},
+                "involved_npcs": {"type": "array", "items": {"type": "string"}, "description": "NPC IDs involved"},
+                "importance": {"type": "string", "enum": ["major", "minor"], "description": "major = story-changing event, minor = local detail"},
+            },
+            "required": ["event"],
+        },
+    },
+    {
+        "name": "update_npc_attitude",
+        "description": "Update how an NPC feels about the party. Call when disposition shifts due to player actions (persuasion, intimidation, helping, betrayal).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "npc_id": {"type": "string", "description": "NPC identifier from campaign data"},
+                "disposition": {"type": "string", "enum": ["friendly", "neutral", "hostile", "fearful"]},
+                "notes": {"type": "string", "description": "Brief reason: 'Party rescued her cat' or 'Intimidated into silence'"},
+            },
+            "required": ["npc_id", "disposition"],
+        },
+    },
+    {
+        "name": "set_world_flag",
+        "description": "Set a world state flag for tracking branching state. Use for binary or simple state changes that affect future events.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "flag": {"type": "string", "description": "Snake_case flag name: 'bridge_destroyed', 'moras_secret_revealed'"},
+                "value": {"type": "string", "default": "true"},
+            },
+            "required": ["flag"],
+        },
+    },
+    {
+        "name": "recall_events",
+        "description": "Query the world journal for past events. Use to remember what happened at a location, with an NPC, or recently. Call this BEFORE NPC dialogue to recall prior interactions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query_type": {"type": "string", "enum": ["location", "npc", "recent"], "description": "What to look up"},
+                "query_id": {"type": "string", "description": "Location ID or NPC ID (required for location/npc queries)"},
+                "limit": {"type": "integer", "default": 10, "description": "Max entries to return"},
+            },
+            "required": ["query_type"],
+        },
+    },
+    {
         "name": "start_npc_dialogue",
         "description": "Start an in-character dialogue with an NPC. Returns the NPC's response. Resolve skill checks (Persuasion, Insight) BEFORE calling this and pass results in context.",
         "input_schema": {
@@ -463,6 +515,12 @@ class ToolDispatcher:
         self.backend = backend
         self.campaign = campaign
         self._npc_sessions: dict[str, object] = {}  # npc_id → NPCDialogueSession
+
+        # Wire up journal manager if backend is available
+        self._journal_manager = None
+        if backend is not None:
+            from src.engine.journal_manager import JournalManager
+            self._journal_manager = JournalManager(game_state.journal, backend)
 
     def dispatch(self, tool_name: str, inputs: dict) -> dict:
         """Route tool call to engine with validation."""
@@ -753,6 +811,43 @@ class ToolDispatcher:
                 from src.data.srd_client import search_srd as _search_srd
                 results = _search_srd(inputs["category"], inputs.get("query", ""))
                 return {"success": True, "count": len(results), "results": results}
+
+            case "record_event":
+                loc = inputs.get("location_id", gs.world.current_location_id)
+                if self._journal_manager:
+                    return self._journal_manager.record_event(
+                        event=inputs["event"],
+                        location_id=loc,
+                        involved_npcs=inputs.get("involved_npcs"),
+                        importance=inputs.get("importance", "minor"),
+                    )
+                return {"success": False, "error": "Journal not available."}
+
+            case "update_npc_attitude":
+                if self._journal_manager:
+                    return self._journal_manager.update_npc_attitude(
+                        npc_id=inputs["npc_id"],
+                        disposition=inputs["disposition"],
+                        notes=inputs.get("notes", ""),
+                    )
+                return {"success": False, "error": "Journal not available."}
+
+            case "set_world_flag":
+                if self._journal_manager:
+                    return self._journal_manager.set_world_flag(
+                        flag=inputs["flag"],
+                        value=inputs.get("value", "true"),
+                    )
+                return {"success": False, "error": "Journal not available."}
+
+            case "recall_events":
+                if self._journal_manager:
+                    return self._journal_manager.recall_events(
+                        query_type=inputs["query_type"],
+                        query_id=inputs.get("query_id", ""),
+                        limit=inputs.get("limit", 10),
+                    )
+                return {"success": False, "error": "Journal not available."}
 
             case "start_npc_dialogue":
                 npc_id = inputs["npc_id"]
