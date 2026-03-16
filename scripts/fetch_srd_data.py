@@ -1,69 +1,99 @@
-"""One-time script to fetch SRD data from Open5e API and write normalized JSON."""
+"""Bulk-download SRD data from dnd5eapi.co and populate the local cache.
+
+Run this once to pre-populate the cache for offline play:
+    python scripts/fetch_srd_data.py
+
+Categories downloaded: monsters, spells, equipment, classes, races, conditions,
+skills, features. Each entity is cached as an individual JSON file under
+src/data/srd/cache/{category}/{index}.json.
+"""
 from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 try:
     import httpx
 except ImportError:
-    print("httpx required: pip install ai-dungeon-master[fetch]")
+    print("httpx required: pip install 'ai-dungeon-master[fetch]'")
     sys.exit(1)
 
-OUTPUT_DIR = Path(__file__).parent.parent / "src" / "data" / "srd"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+API_BASE = "https://www.dnd5eapi.co/api/2014"
+CACHE_DIR = Path(__file__).parent.parent / "src" / "data" / "srd" / "cache"
 
-BASE_URL = "https://api.open5e.com/v1"
-
-# Priority spells that need full mechanical data
-RESOLVED_SPELLS = {
-    "fire-bolt", "sacred-flame", "eldritch-blast", "minor-illusion", "mage-hand",
-    "magic-missile", "shield", "cure-wounds", "healing-word", "thunderwave",
-    "bless", "command", "mage-armor",
-    "scorching-ray", "hold-person", "misty-step", "spiritual-weapon", "shatter",
-    "fireball", "lightning-bolt", "counterspell", "revivify", "spirit-guardians",
-}
-
-MONSTER_FILTER = {
-    "goblin", "goblin-boss", "orc", "skeleton", "zombie", "wolf",
-    "bandit", "twig-blight", "bugbear", "ghoul", "giant-spider",
-    "cultist", "guard", "thug", "scout",
-}
+CATEGORIES = [
+    "monsters",
+    "spells",
+    "equipment",
+    "classes",
+    "races",
+    "conditions",
+    "skills",
+    "features",
+]
 
 
-def fetch_json(url: str) -> dict:
-    resp = httpx.get(url, timeout=30)
+def fetch(endpoint: str, client: httpx.Client) -> dict:
+    resp = client.get(f"{API_BASE}/{endpoint}")
     resp.raise_for_status()
     return resp.json()
 
 
-def fetch_all(endpoint: str, limit: int = 500) -> list[dict]:
-    url = f"{BASE_URL}/{endpoint}/?limit={limit}"
-    data = fetch_json(url)
-    results = data.get("results", [])
-    while data.get("next"):
-        data = fetch_json(data["next"])
-        results.extend(data.get("results", []))
-    return results
+def fetch_category(category: str, client: httpx.Client) -> int:
+    """Download all entries for a category. Returns count."""
+    cat_dir = CACHE_DIR / category
+    cat_dir.mkdir(parents=True, exist_ok=True)
+
+    # Get index
+    index_data = fetch(category, client)
+    results = index_data.get("results", [])
+
+    # Cache the index itself
+    index_dir = CACHE_DIR / "_indexes"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    entries = [{"index": r["index"], "name": r["name"]} for r in results]
+    (index_dir / f"{category}.json").write_text(json.dumps(entries, indent=2))
+
+    count = 0
+    for i, entry in enumerate(results):
+        index = entry["index"]
+        cache_path = cat_dir / f"{index}.json"
+
+        # Skip if already cached
+        if cache_path.exists():
+            count += 1
+            continue
+
+        try:
+            data = fetch(f"{category}/{index}", client)
+            cache_path.write_text(json.dumps(data, indent=2))
+            count += 1
+        except Exception as e:
+            print(f"  WARN: failed to fetch {category}/{index}: {e}")
+
+        # Progress indicator
+        if (i + 1) % 25 == 0:
+            print(f"  {i + 1}/{len(results)}...")
+
+        # Small delay to be nice to the API
+        time.sleep(0.05)
+
+    return count
 
 
 def main() -> None:
-    print("Fetching spells...")
-    spells_raw = fetch_all("spells", limit=500)
-    print(f"  Got {len(spells_raw)} spells")
+    print(f"Fetching SRD data from {API_BASE}")
+    print(f"Cache directory: {CACHE_DIR}\n")
 
-    print("Fetching monsters...")
-    monsters_raw = fetch_all("monsters", limit=500)
-    print(f"  Got {len(monsters_raw)} monsters")
+    with httpx.Client(timeout=30.0) as client:
+        for category in CATEGORIES:
+            print(f"Fetching {category}...")
+            count = fetch_category(category, client)
+            print(f"  {count} entries cached\n")
 
-    # Write raw data for inspection
-    (OUTPUT_DIR / "_raw_spells.json").write_text(json.dumps(spells_raw, indent=2))
-    (OUTPUT_DIR / "_raw_monsters.json").write_text(json.dumps(monsters_raw, indent=2))
-
-    print("\nNote: Raw data written to src/data/srd/_raw_*.json")
-    print("Manual normalization required to map to SpellData/Monster schemas.")
-    print("See src/data/srd/spells.json for the target format.")
+    print("Done! SRD cache populated for offline use.")
 
 
 if __name__ == "__main__":

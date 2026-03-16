@@ -14,9 +14,9 @@ from src.campaign.campaign_db import CampaignData
 from src.dm.backends import PROVIDERS, create_backend
 
 SRD_MONSTER_IDS = [
-    "goblin", "goblin_boss", "orc", "skeleton", "zombie", "wolf",
-    "bandit", "twig_blight", "bugbear", "ghoul", "giant_spider",
-    "cultist", "guard", "thug", "scout",
+    "goblin", "orc", "skeleton", "zombie", "wolf",
+    "bandit", "awakened-shrub", "bugbear", "ghoul", "giant-spider",
+    "cultist", "guard", "thug", "scout", "ogre", "kobold",
 ]
 
 SYSTEM_PROMPT = """\

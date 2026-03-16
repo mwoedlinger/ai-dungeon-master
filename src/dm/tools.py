@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from src.campaign.loader import get_monster_template, get_spell
+from src.data.srd_client import get_monster_template, get_spell, lookup_srd as _lookup_srd
 from src.engine import combat as combat_engine
 from src.engine import rest as rest_engine
 from src.engine.rules import (
@@ -364,6 +364,44 @@ _STATE_TOOLS = [
         },
     },
     {
+        "name": "lookup_srd",
+        "description": "Look up any D&D 5e SRD data: monsters, spells, equipment, classes, races, conditions, skills. Use to get stats before spawning a monster, check spell details, or look up equipment properties.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "enum": ["monsters", "spells", "equipment", "classes", "races", "conditions", "skills", "features"],
+                    "description": "Type of SRD data to look up",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Name to look up (e.g. 'goblin', 'fireball', 'longsword'). Use standard SRD names.",
+                },
+            },
+            "required": ["category", "query"],
+        },
+    },
+    {
+        "name": "search_srd",
+        "description": "Search/list available SRD entities by category. Use when you need to find what's available (e.g. all CR 1 monsters, all level-2 spells).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "enum": ["monsters", "spells", "equipment", "classes", "races", "conditions", "skills"],
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Optional search filter. Empty string returns all entries.",
+                    "default": "",
+                },
+            },
+            "required": ["category"],
+        },
+    },
+    {
         "name": "start_npc_dialogue",
         "description": "Start an in-character dialogue with an NPC. Returns the NPC's response. Resolve skill checks (Persuasion, Insight) BEFORE calling this and pass results in context.",
         "input_schema": {
@@ -707,6 +745,14 @@ class ToolDispatcher:
                     "difficulty": encounter.difficulty,
                     "note": "Call start_combat() with these monster_ids in monster_templates to begin.",
                 }
+
+            case "lookup_srd":
+                return _lookup_srd(inputs["category"], inputs["query"])
+
+            case "search_srd":
+                from src.data.srd_client import search_srd as _search_srd
+                results = _search_srd(inputs["category"], inputs.get("query", ""))
+                return {"success": True, "count": len(results), "results": results}
 
             case "start_npc_dialogue":
                 npc_id = inputs["npc_id"]

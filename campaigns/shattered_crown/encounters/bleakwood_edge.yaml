@@ -1,11 +1,11 @@
 location_id: bleakwood_edge
 encounters:
-- description: A pack of twig blights emerge from the underbrush, twigs scraping as they move.
+- description: A cluster of awakened shrubs surge from the underbrush, twigs scraping as they move.
   monster_ids:
-  - twig_blight
-  - twig_blight
-  - twig_blight
-  - twig_blight
+  - awakened-shrub
+  - awakened-shrub
+  - awakened-shrub
+  - awakened-shrub
   difficulty: easy
   trigger: random
 - description: "A lone wolf circles the party, its eyes faintly luminous \u2014 it serves the entity."

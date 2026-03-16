@@ -209,3 +209,5 @@ __marimo__/
 
 # ai-dungeon-master
 saves
+src/data/srd/cache/
+src/data/srd/_raw_*.json

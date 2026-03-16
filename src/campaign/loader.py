@@ -1,4 +1,9 @@
-"""Load SRD data and campaign files (JSON or YAML directory)."""
+"""Load SRD data and campaign files (JSON or YAML directory).
+
+SRD lookups are delegated to src.data.srd_client, which provides:
+  - Local file cache + remote API (dnd5eapi.co) for 300+ monsters, 300+ spells
+  - Backward-compatible fallback to legacy static JSON files
+"""
 from __future__ import annotations
 
 import json
@@ -11,14 +16,16 @@ from src.campaign.campaign_db import (
     CampaignIndex,
     EntityRef,
 )
+from src.data.srd_client import (
+    get_monster_template,
+    get_spell,
+    load_srd_data,
+)
 from src.models.monster import Monster
 from src.models.spells import SpellData
 
-_DATA_DIR = Path(__file__).parent.parent / "data" / "srd"
-
-# Module-level caches populated by load_srd_data()
-_spells: dict[str, SpellData] = {}
-_monsters: dict[str, dict] = {}  # raw dicts, instantiated fresh each time
+# Re-export for backward compat (other modules import from here)
+__all__ = ["get_monster_template", "get_spell", "load_srd_data", "load_campaign", "validate_campaign"]
 
 # Mapping from subdirectory name to entity type
 _DIR_TO_TYPE = {
@@ -28,35 +35,6 @@ _DIR_TO_TYPE = {
     "plot_hooks": "plot_hook",
     "encounters": "encounter",
 }
-
-
-def load_srd_data() -> None:
-    """Load all SRD data into module-level caches."""
-    global _spells, _monsters
-
-    spells_path = _DATA_DIR / "spells.json"
-    if spells_path.exists():
-        raw = json.loads(spells_path.read_text())
-        _spells = {s["name"].lower(): SpellData.model_validate(s) for s in raw}
-
-    monsters_path = _DATA_DIR / "monsters.json"
-    if monsters_path.exists():
-        raw = json.loads(monsters_path.read_text())
-        _monsters = {m["id"]: m for m in raw}
-
-
-
-def get_spell(name: str) -> SpellData | None:
-    """Look up a spell by name (case-insensitive)."""
-    return _spells.get(name.lower())
-
-
-def get_monster_template(monster_id: str) -> Monster:
-    """Create a fresh Monster instance from the SRD template."""
-    raw = _monsters.get(monster_id)
-    if raw is None:
-        raise KeyError(f"Monster template not found: {monster_id!r}")
-    return Monster.model_validate(json.loads(json.dumps(raw)))
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +173,9 @@ def validate_campaign(campaign: CampaignData) -> list[str]:
             )
         for enc in encounters:
             for mid in enc.monster_ids:
-                if mid not in _monsters and _monsters:
+                try:
+                    get_monster_template(mid)
+                except KeyError:
                     errors.append(
                         f"Encounter at {loc_id!r}: monster_id {mid!r} not found in SRD data"
                     )
