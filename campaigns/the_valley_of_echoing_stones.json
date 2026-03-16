@@ -1,0 +1,504 @@
+{
+  "title": "The Valley of Echoing Stones",
+  "setting_overview": "Nestled deep in the Crooked Spine Mountains lies the town of Last Rest, a place where the wind doesn't howl\u2014it whispers. The valley walls are sheer slate, striated with veins of luminous quartz that glow faintly at dusk, casting long, dancing shadows. The air smells perpetually of damp earth, pine resin, and the cold, metallic tang of the underground springs that feed the town's famous baths. People come here to heal, to convalesce, or to vanish. They stay because the valley is gentle, the harvests are bountiful, and the stones, they say, remember kindness. But the townsfolk speak in hushed tones after dark, and no one goes into the high eastern pass where the oldest mineshafts gape like empty sockets. Children play a game called 'Don't Listen to the Echo,' and every home has a bowl of salt by the door.",
+  "starting_location_id": "last_rest_common",
+  "locations": {
+    "last_rest_common": {
+      "id": "last_rest_common",
+      "name": "The Common Hearth",
+      "description": "A wide, cobbled square at the heart of Last Rest, dominated by a massive, ancient hearthstone that never goes cold. The air is thick with the scent of woodsmoke, baking bread from the communal ovens, and the faint, clean ozone of the nearby springs. Townsfolk move with a slow, deliberate grace, their conversations hushed but warm. The slate buildings lean inward as if listening, their quartz veins catching the perpetual twilight in soft, blue-white pulses. This is where the town gathers, shares news, and reminds itself it is still a community of individuals.",
+      "connected_to": [
+        "the_silent_baths",
+        "the_weeping_wall",
+        "founders_row"
+      ]
+    },
+    "the_silent_baths": {
+      "id": "the_silent_baths",
+      "name": "The Silent Baths",
+      "description": "A series of natural geothermal pools housed within a cavernous structure of smoothed stone and glowing quartz. The air is heavy with mineral steam that tastes of iron and something sweetly organic, like crushed fern. The water itself luminesces with a gentle, blue-green light, and bathers move through it in near-silence, their faces slack with relief or distant contemplation. The only sounds are the drip of condensation and the soft, echoing sighs from the stone. Here, the valley's 'blood' is most accessible, and its gifts\u2014and costs\u2014are most freely given.",
+      "connected_to": [
+        "last_rest_common",
+        "the_weeping_wall"
+      ]
+    },
+    "the_weeping_wall": {
+      "id": "the_weeping_wall",
+      "name": "The Weeping Wall",
+      "description": "A sheer, two-hundred-foot cliff face at the valley's eastern edge, perpetually slick with cold water seeping from countless hairline fractures. The water doesn't fall in drops but slides in slow, continuous sheets, like tears. At its base, the ground is a treacherous bog of luminous moss and sucking mud. The wall hums, a sub-audible vibration felt in the teeth and sternum. This is the visible wound, the place where the titan's pain leaks out most rawly. The oldest, collapsed mine entrances are visible higher up, dark sockets weeping rust-colored water.",
+      "connected_to": [
+        "last_rest_common",
+        "the_silent_baths",
+        "threshold_of_echoes"
+      ]
+    },
+    "founders_row": {
+      "id": "founders_row",
+      "name": "Founder's Row",
+      "description": "A quiet, dead-end lane of seven identical, perfectly preserved cottages with slate roofs and black-lacquered doors. No one has lived here for generations, yet the gardens are meticulously tended, the windows spotless. The air is still and scentless, as if held in a breath. At dusk, lamplight flickers to life behind the curtains, and the faint sounds of a family supper\u2014clinking cutlery, a child's laugh\u2014can be heard, repeating the same thirty-second loop every night. It is peaceful, poignant, and deeply unnerving. This is where the pact's first 'Echoes' are most perfectly preserved.",
+      "connected_to": [
+        "last_rest_common",
+        "the_archive_of_salt"
+      ]
+    },
+    "the_archive_of_salt": {
+      "id": "the_archive_of_salt",
+      "name": "The Archive of Salt",
+      "description": "A low, windowless building behind the town's modest temple. Inside, shelf upon shelf holds not books, but bowls, urns, and boxes filled with salt of different colors and textures\u2014grey mountain salt, white sea salt, pink salt tinged with iron. Each container is meticulously labeled with a name and date. The air is dry and still, the only sound the faint crunch underfoot. This is the town's true record: not of events, but of people. Each portion of salt represents a resident's memories, ritually 'salted away' to preserve their individuality against the valley's blurring influence.",
+      "connected_to": [
+        "founders_row",
+        "the_root_cellar"
+      ]
+    },
+    "threshold_of_echoes": {
+      "id": "threshold_of_echoes",
+      "name": "The Threshold of Echoes",
+      "description": "Not a natural cave, but a vast, perfectly spherical chamber deep within the mountain, accessed by a treacherous, half-collapsed tunnel from the old mines. The walls are smooth, fused stone, and at its center floats a massive, pulsing heartstone\u2014a jagged crystal the color of a bruise, shot through with veins of gold and black. The air crackles with static and the psychic pressure of ten thousand overlapping whispers. Here, the boundary between the titan's dreaming mind and the collective Echo of the town is tissue-thin. Time and sound behave strangely; a shout might take minutes to be heard, or might never leave your lips at all.",
+      "connected_to": [
+        "the_weeping_wall"
+      ]
+    }
+  },
+  "key_npcs": {
+    "elara_vane": {
+      "name": "Elara Vane",
+      "location": "founders_row",
+      "personality": "Speaks in measured, precise sentences, never raising her voice. She gestures with her left hand only\u2014her right remains still at her side. When listening, she tilts her head slightly as if weighing each word. She dresses in dark, tailored wool that seems to absorb the valley's faint light.",
+      "goals": "To gain control of the mineral rights to the entire eastern pass, including the sealed mines, through legal maneuvering and quiet acquisitions. She believes there's a fortune in untapped resonant quartz beneath the collapses.",
+      "secret": "She is financing a small, discreet team of engineers and geomancers to map the subsurface stability around the old mines, looking for a safe way to re-enter without triggering another collapse or alerting the town council.",
+      "disposition": "neutral"
+    },
+    "tomas_reed": {
+      "name": "Tomas Reed",
+      "location": "the_weeping_wall",
+      "personality": "Speaks in a low, hurried whisper, constantly glancing over his shoulder at the weeping stone. His hands tremble slightly unless he's holding something. He has a habit of tracing the jagged, silvery scar that runs from his temple to his jaw with his thumb when agitated. He sleeps only in short, fitful bursts, often found sitting by the wall at all hours.",
+      "goals": "To understand what he saw and heard during the 'Bright Night' so he can finally sleep through a night without the whispers.",
+      "secret": "During the event, he didn't just see lights and hear voices\u2014he felt a profound, crushing loneliness that wasn't his own, and for a moment, he recognized one of the shimmering figures as his long-dead grandfather, who spoke a single word: 'Anchor.'",
+      "disposition": "neutral"
+    },
+    "corinne_ash": {
+      "name": "Corinne Ash",
+      "location": "last_rest_common",
+      "personality": "Observant and blunt, with a dry, wry humor. She speaks plainly, often pointing out contradictions in local customs with a raised eyebrow. She's always sketching in a small, leather-bound book\u2014quick lines of people, buildings, rock formations. She has a traveler's patience and a newcomer's lack of reverence.",
+      "goals": "To complete her commissioned survey of regional architectural styles for a distant university, earn her fee, and leave before the 'creeping quiet' of the valley, as she calls it, gets into her bones.",
+      "secret": "She has no secret related to the Echoes, but she's meticulously documented how the town's layout subtly mirrors the fracture patterns in the valley walls, and that the placement of salt bowls isn't random\u2014it follows a decaying geometric pattern she can't quite identify.",
+      "disposition": "friendly"
+    },
+    "hale_granger": {
+      "name": "Hale Granger",
+      "location": "the_silent_baths",
+      "personality": "A large, gentle man with a voice like warm gravel. He speaks slowly, often pausing to find the right word. He has a habit of humming old, tuneless lullabies while he works. His eyes are perpetually kind but carry a deep, settled sadness. He touches the doorframe of the bathhouse entrance every time he passes through, a silent ritual.",
+      "goals": "To maintain the baths as a place of peace and healing, as he promised his late wife he would.",
+      "secret": "His wife, Elara (no relation to Elara Vane), didn't die of illness. She was an 'Echo-touched' who one day walked into the deepest spring, laid down, and simply faded away, smiling. He keeps her favorite shawl folded behind the counter.",
+      "disposition": "friendly"
+    },
+    "sister_ilena": {
+      "name": "Sister Ilena",
+      "location": "threshold_of_echoes",
+      "personality": "Speaks with fervent, unwavering certainty. Her hands are always in motion, tracing shapes in the air to illustrate her points. She has memorized every detail of every recorded Echo event and can recite them like scripture. She is not fanatical, but profoundly, empathetically convinced.",
+      "goals": "To prove the Echoes are not memories or ghosts, but a form of ongoing, collective prayer\u2014a ritual the valley itself is performing to heal a great, ancient wound.",
+      "secret": "She is correct in her core premise but misunderstands the intent. The 'prayer' is the titan's dying neural activity; the 'wound' is fatal.",
+      "disposition": "neutral"
+    },
+    "dorian_reed": {
+      "name": "Dorian Reed",
+      "location": "founders_row",
+      "personality": "Speaks with feverish intensity, leaning close. He maps connections on scraps of parchment with tangled lines of ink. He forgets to eat, forgets to sleep. He is not angry, but profoundly, desperately earnest. He will seize your sleeve to make a point.",
+      "goals": "To make everyone see the truth before it's too late. To find the 'key' he's sure is hidden in the founder's houses.",
+      "secret": "He is absolutely correct. The repeating patterns in the town's architecture, the placement of the salt bowls, the timing of certain Echoes\u2014they form a vast, slow ritual circle. The pact wasn't just an agreement; it's a spell still being cast, with the town itself as the component. He's just wrong about its purpose (he thinks it's a prison for a demon).",
+      "disposition": "neutral"
+    },
+    "keeper_albric": {
+      "name": "Keeper Albric",
+      "location": "the_archive_of_salt",
+      "personality": "Moves with a scholar's careful economy. He answers questions with exact, literal phrases, then falls silent. If asked about the deeper nature of the Echoes or the salt, he will pause, look at the nearest salt-crusted wall, and say something like, 'Moisture is the enemy of parchment. Shall I show you the drying racks?'",
+      "goals": "To preserve every record, every memory entrusted to the salt. To prevent the knowledge in his care from causing harm. To understand the Archive's full function, which he suspects is more than historical.",
+      "secret": "He knows the salt doesn't just preserve memories; it can, under specific conditions, *play them back*. He has accidentally witnessed fragments of the founders' final ritual. He has told no one because he doesn't know who to trust with a truth that feels like a lit fuse.",
+      "disposition": "neutral"
+    },
+    "warden_brice": {
+      "name": "Warden Brice",
+      "location": "threshold_of_echoes",
+      "personality": "Speaks in precise, measured sentences. He checks his ledger after every statement, as if confirming reality against the record. He has a habit of tapping his knuckles twice on any wooden surface he passes. He is deeply frustrated by improvisation and considers 'acting on a hunch' to be professional malpractice.",
+      "goals": "To maintain perfect order and record at the Threshold. To ensure no one disturbs the Echoes, and no Echoes disturb the town. To file his weekly reports on time.",
+      "secret": "He has meticulously cataloged a 3% annual increase in 'stable, repeat-phase Echoes' at the Threshold. He hasn't reported it because the official forms have no category for 'quantifiable increase in supernatural phenomena' and he doesn't know which supplementary sheet to use.",
+      "disposition": "neutral"
+    },
+    "valerius_crane": {
+      "name": "Valerius Crane",
+      "location": "the_silent_baths",
+      "personality": "Quiet, observant, and impeccably dressed in fine, dark wool. He speaks softly, making people lean in to listen. He treats everyone with the same polite, detached respect, whether they are a council member or a bath attendant. He never makes threats, only statements of fact.",
+      "goals": "To gain a controlling interest in the Silent Baths and the springs that feed them, understanding them as the literal heart of the valley's power and economy.",
+      "secret": "He is not a mere investor. He is a disgraced academic from a distant city who has studied places like Last Rest. He believes he can harness the spring's properties to achieve a form of physical immortality, and is methodically buying out shares and bribing officials.",
+      "disposition": "neutral"
+    },
+    "lyra_gale": {
+      "name": "Lyra Gale",
+      "location": "founders_row",
+      "personality": "A young woman with a voice like clear water and a smile that seems to hold sunlight. She hums constantly, old lullabies. She is generous with her time and her small harvests from her garden. She speaks plainly and from the heart, but there is a deep, unspoken weariness behind her eyes.",
+      "goals": "To maintain her family's home on Founders Row and care for her younger siblings, upholding the memory of her parents.",
+      "secret": "Her parents didn't 'move away' as the story goes. They are still in the house. They are Echoes, perfectly preserved, repeating a happy breakfast scene every morning. Lyra plays along, setting the table for them, unable to let go or explain the truth to her siblings, who are starting to forget their parents' faces.",
+      "disposition": "friendly"
+    },
+    "ellen_bracken": {
+      "name": "Ellen Bracken",
+      "location": "last_rest_common",
+      "personality": "Speaks in a gentle, rhythmic cadence, often pausing as if listening to a faint tune. She is constantly knitting\u2014small, shapeless grey things she calls 'comforts'\u2014and her needles click a steady, soothing rhythm. She looks people directly in the eye with profound sadness and kindness.",
+      "goals": "To care for the people of Last Rest, to ease their quiet pains, and to keep a specific promise.",
+      "secret": "Years ago, her husband, lost to the Echoing, made her promise not to follow him into the mines to search, no matter how much she heard him calling. She hears his voice in the wind every night, a tender, personal Echo, and the promise is a chain that aches.",
+      "disposition": "friendly"
+    },
+    "marten_the_ferryman": {
+      "name": "Marten",
+      "location": "last_rest_common",
+      "personality": "A large, gentle man with a rumbling laugh that seems to start in his boots. He calls everyone 'friend' and means it. He speaks slowly, with long, comfortable pauses, as if each thought is a stone he's turning over to admire. He has a habit of gifting people small, smooth river stones he's pocketed, saying 'For your troubles.'",
+      "goals": "To keep his ferry running, to look after his aging dog, and to ensure no one in his community goes hungry.",
+      "secret": "His daughter, who left the valley five years ago to seek her fortune, has stopped writing. The last letter spoke of strange dreams of 'stone voices' calling her home. He keeps a chair set for her at his table every night, waiting, but fears the valley itself has claimed her in a way he cannot understand. He blames himself for not warning her properly.",
+      "disposition": "friendly"
+    },
+    "anja_sofia": {
+      "name": "Anja Sofia",
+      "location": "the_silent_baths",
+      "personality": "Observant and blunt, with the directness of someone who hasn't learned local taboos. She asks 'why' constantly. She hums off-key folk songs from her homeland while she works. She has a habit of staring at people's shadows, then looking embarrassed.",
+      "goals": "To earn enough money soaking and carding wool to buy a flock of her own and start a proper mill. To understand why this valley feels both so peaceful and so deeply wrong.",
+      "secret": "She has no secret related to the mystery. Her clarity comes from being an outsider. She's noticed that the longer-term bath attendants have a specific, glazed look in their eyes, and that regular bathers sometimes hum the same tuneless fragment of music, unaware they're doing it.",
+      "disposition": "friendly"
+    },
+    "silas_marrow": {
+      "name": "Silas Marrow",
+      "location": "threshold_of_echoes",
+      "personality": "A grizzled, retired miner who spits tobacco and speaks in gravelly absolutes. He is stubborn, fearless, and filled with a cold, certain rage. He doesn't try to convince people; he states what he knows as fact and scoffs at disagreement.",
+      "goals": "To see the eastern pass and the old mines permanently sealed with dynamite, and to warn anyone who will listen to leave the valley.",
+      "secret": "He is also correct. He was in the mine during the 'collapse.' He saw the heartstone, and he saw what the founders' ritual did to his crewmates. He believes the valley isn't haunted\u2014it's infected, and the infection is spreading through the stones and the water.",
+      "disposition": "hostile"
+    },
+    "seraphine_reed": {
+      "name": "Seraphine Reed",
+      "location": "last_rest_common",
+      "personality": "Speaks in a warm, honeyed tone that puts people at ease, but her eyes are always calculating. She moves with deliberate grace, never rushing, and has a habit of touching her silver locket when she's thinking. She laughs easily and often, but it never quite reaches her eyes.",
+      "goals": "To quietly acquire the mineral rights to the old mines from the Council before anyone realizes their true value, securing her family's wealth for generations.",
+      "secret": "She has been secretly paying off the town's sole surveyor to falsify reports showing the mines are geologically unstable and worthless, while her own private assays show the quartz veins are thicker and more luminous than ever.",
+      "disposition": "neutral"
+    },
+    "marten": {
+      "name": "Marten",
+      "location": "the_weeping_wall",
+      "personality": "A gaunt, intense man who speaks in rapid, fervent bursts. He gestures wildly at the striated rock as he talks. He is often covered in chalk dust from marking the wall. He is dismissed as a madman, but his observations about the Echoes are meticulously documented in a water-stained journal.",
+      "goals": "To prove that the Echoes are not ghosts or random phenomena, but a coherent language\u2014a 'syntax of sorrow' being etched into the valley by the dreaming earth.",
+      "secret": "He is correct. His 'madness' is the early stages of assimilation, but it has granted him a fragile, intuitive understanding of the Echo-patterns. His journal contains accurate predictions of when and where certain Echoes will manifest.",
+      "disposition": "neutral"
+    },
+    "cassian_weep": {
+      "name": "Cassian Weep",
+      "location": "the_weeping_wall",
+      "personality": "Speaks in a low, halting monotone, as if choosing each word from a limited supply. His hands are never still\u2014they trace patterns on his thighs or pick at the frayed edges of his sleeves. He flinches at sudden noises, especially the sound of dripping water. When he does speak of his past, his eyes fix on a middle distance, and his voice becomes detached, clinical.",
+      "goals": "To find a way to sleep through the night without dreaming of the dark. To prove to himself that what he remembers is real, not just madness.",
+      "secret": "He was part of the last expedition into the eastern mines before the final collapse. He didn't just see the collapse\u2014he saw what was *behind* it in the moments before: a wall of living stone that seemed to breathe, and a chorus of voices that weren't voices at all. He was the only one who looked directly at it.",
+      "disposition": "neutral"
+    },
+    "sera_linden": {
+      "name": "Sera Linden",
+      "location": "last_rest_common",
+      "personality": "Warm, quick to laugh, and possesses a merchant's easy charm. She speaks with her hands, painting pictures in the air. She remembers everyone's name and their favorite tea. Her smile doesn't reach her eyes when certain topics arise\u2014then it becomes a polished, professional mask.",
+      "goals": "To buy the deed to the old livery stable on Founder's Row and turn it into a proper inn before the seasonal traders arrive. She needs capital and influence.",
+      "secret": "She isn't just a traveling merchant. She's a discreet procurer of rare, valley-specific materials (luminous quartz shards, salt from the Archive, water from the Weeping Wall) for an alchemist's guild in a distant city. She downplays their value and origins to keep her supply cheap and exclusive.",
+      "disposition": "friendly"
+    }
+  },
+  "factions": [
+    {
+      "name": "The Salt-Bearers",
+      "description": "A loose, traditionalist group comprised mostly of older townsfolk and some younger devotees. They maintain the custom of placing salt bowls, organize the seasonal 'Cleansing Walk' along the valley rim, and orally pass down stories of the founders.",
+      "goals": "To preserve the rituals that they believe keep the valley's 'mood' gentle and the Echoes benign. They resist change and outside influence.",
+      "allies": [
+        "Keeper Albric (sympathizer)",
+        "Hale Granger (respects tradition)"
+      ],
+      "enemies": [
+        "Elara Vane (seen as exploitative)",
+        "Dorian Reed (seen as disruptive)"
+      ]
+    },
+    {
+      "name": "The Vein-Tappers",
+      "description": "A secretive cabal of a few wealthy citizens, master miners, and a disgraced alchemist. They believe the luminous quartz and spring waters hold the key to not just longevity, but transcendent consciousness.",
+      "goals": "To carefully harvest and experiment with the valley's resonant materials, seeking to amplify their own minds and achieve a unified state with the 'Valley Dream.' They see assimilation as an ascension, not a loss.",
+      "allies": [],
+      "enemies": [
+        "The Salt-Bearers (who would stop them)",
+        "Warden Brice (who would arrest them)"
+      ]
+    },
+    {
+      "name": "The Council of Last Rest",
+      "description": "The official governing body of the town. Primarily concerned with practical matters: trade, safety, infrastructure. They officially treat the Echoes as a natural curiosity and tourist draw, downplaying the weirder aspects.",
+      "goals": "To ensure the town's economic survival and physical stability. They manage a delicate balance between acknowledging the strange phenomena and not scaring away newcomers or investors.",
+      "allies": [
+        "Warden Brice (their agent)",
+        "Keeper Albric (funded by them)"
+      ],
+      "enemies": [
+        "The Vein-Tappers (a secret threat to stability)",
+        "Extremists in The Salt-Bearers (who oppose development)"
+      ]
+    }
+  ],
+  "plot_hooks": [
+    {
+      "id": "the_bright_night_vision",
+      "title": "The Bright Night Vision",
+      "description": "Tomas Reed, a normally steady miner, has been shaken since witnessing a strange event he calls the 'Bright Night' near the Weeping Wall. He describes seeing figures of light moving through solid stone and hearing a chorus of voices that weren't there. He's desperate to understand what he saw and fears he's going mad.",
+      "trigger_location": "the_weeping_wall",
+      "connected_npcs": [
+        "tomas_reed",
+        "marten",
+        "cassian_weep"
+      ],
+      "clue_locations": []
+    },
+    {
+      "id": "the_founders_folly",
+      "title": "The Founder's Folly",
+      "description": "Dorian Reed, Tomas's reclusive uncle, claims to possess his ancestor's journal\u2014one of the original founders. He rants about a 'key' hidden in the old mines that can 'unlock the truth' before 'the forgetting' consumes everyone. Most dismiss him as a crank, but his knowledge of town history is unnervingly precise.",
+      "trigger_location": "founders_row",
+      "connected_npcs": [
+        "dorian_reed",
+        "elara_vane",
+        "lyra_gale",
+        "seraphine_reed"
+      ],
+      "clue_locations": []
+    },
+    {
+      "id": "the_mineral_rights_grab",
+      "title": "The Mineral Rights Grab",
+      "description": "Elara Vane, a shrewd outsider, is quietly buying up mineral rights to the eastern pass, including the old mines. She claims it's for safe, modern surveying. Simultaneously, Seraphine Reed is making her own discreet offers to families on Founders Row. Their competition is creating tension.",
+      "trigger_location": "founders_row",
+      "connected_npcs": [
+        "elara_vane",
+        "seraphine_reed",
+        "lyra_gale",
+        "silas_marrow"
+      ],
+      "clue_locations": []
+    },
+    {
+      "id": "the_silent_schism",
+      "title": "The Silent Schism",
+      "description": "A quiet ideological conflict simmers between Sister Ilena and Warden Brice at the Threshold of Echoes. Ilena believes the Echoes are a form of living memory to be studied and communed with. Brice believes they are a dangerous record to be cataloged and contained. Their dispute affects how visitors interact with the site.",
+      "trigger_location": "threshold_of_echoes",
+      "connected_npcs": [
+        "sister_ilena",
+        "warden_brice",
+        "keeper_albric",
+        "silas_marrow"
+      ],
+      "clue_locations": []
+    }
+  ],
+  "encounter_tables": {
+    "last_rest_common": [
+      {
+        "description": "A small, shimmering swarm of what looks like fireflies hovers near the central hearthstone. On closer inspection, they're not insects at all, but tiny, flickering motes of elemental warmth\u2014steam mephits drawn to the titan-scale's residual heat. They dance in hypnotic patterns, occasionally landing on the stone and leaving brief, damp patches that smell of hot springs. They're not hostile, but their playful antics might accidentally scorch a sleeve or startle a horse if approached carelessly.",
+        "monster_ids": [
+          "steam-mephit",
+          "steam-mephit",
+          "steam-mephit"
+        ],
+        "difficulty": "easy",
+        "trigger": "random"
+      },
+      {
+        "description": "An elderly woman named Elara sits by the hearth, humming softly as she mends a cloak. Her hands are steady, but her eyes are distant. As the players watch, her form seems to flicker\u2014for a moment, she's a young woman with the same cloak, singing the same tune, before resolving back into the elder. She's not a ghost, but an 'Echo'\u2014a psychic impression preserved by the titan's dreaming mind. She's harmless and mostly unaware of her condition, but her presence can cause brief, confusing overlaps in perception for those nearby.",
+        "monster_ids": [
+          "specter"
+        ],
+        "difficulty": "medium",
+        "trigger": "scripted"
+      },
+      {
+        "description": "A pack of giant rats, their fur streaked with faintly glowing quartz dust, has burrowed up through a crack in the cobbles near the communal ovens. They're not aggressive, but they're desperately hungry and drawn to the scent of bread. They move with an odd, synchronized twitch, as if sharing a single nervous impulse. Their eyes reflect the hearth-light in dozens of tiny, panicked points.",
+        "monster_ids": [
+          "giant-rat",
+          "giant-rat",
+          "giant-rat",
+          "giant-rat",
+          "swarm-of-rats"
+        ],
+        "difficulty": "hard",
+        "trigger": "random"
+      }
+    ],
+    "the_silent_baths": [
+      {
+        "description": "A lone, elderly woman named Elara sits submerged to her chin in the oldest pool, her eyes closed. The water around her glows with an intense, pulsing blue-green light. As the players approach, she opens her eyes\u2014but they are clouded with a milky film, and when she speaks, her voice is a chorus of whispers, layered with the distinct cadences of a young man, a child, and a stern matron. She recounts three fragmented, overlapping memories from different lives, all centered on the same event: the night the founders 'anchored the pain.' The memories conflict on key details\u2014was it a willing sacrifice or a desperate betrayal? The water around her begins to swirl gently, and faint, translucent shapes\u2014Echoes of the people whose memories she channels\u2014drift just beneath the surface.",
+        "monster_ids": [
+          "commoner"
+        ],
+        "difficulty": "easy",
+        "trigger": "scripted"
+      },
+      {
+        "description": "In a side chamber where the mineral deposits have grown thick and crystalline, a **Gray Ooze** has formed from the concentrated, stagnant essence of the valley's 'blood.' It doesn't move to attack, but rather, it slowly, mournfully absorbs the carvings on the wall\u2014ancient, crude pictographs depicting the founding ritual. Where it passes, the stone is left smooth and blank, the history erased. The ooze itself occasionally ripples, and within its translucent body, the faint, ghostly images of the erased pictographs can be seen swirling before dissolving. A swarm of **Steam Mephits**, playful and mischievous entities born from the constant vapors, dart around the chamber, occasionally blowing gusts of hot steam to herd the ooze or startle intruders, treating the whole thing as a game.",
+        "monster_ids": [
+          "gray-ooze",
+          "steam-mephit",
+          "steam-mephit"
+        ],
+        "difficulty": "medium",
+        "trigger": "random"
+      },
+      {
+        "description": "The party finds **Kaelen**, a haggard scout from the town, kneeling by a secondary pool, frantically scrubbing his arms with pumice stone. His skin is raw and bleeding, but beneath the abrasions, faint, luminescent traceries\u2014like subcutaneous veins of the glowing water\u2014are visible. He is muttering, \"It's in the skin, it won't come out.\" He is not hostile, but terrified. If confronted, he may lash out in panic. Worse, his prolonged, desperate exposure has attracted a **Specter**\u2014a pale, wispy manifestation of despair not from a dead person, but from the valley's own lingering pain and Kaelen's amplified fear. It drifts silently from the steam, seeking to drain his will and leave him a vacant, bathing husk.",
+        "monster_ids": [
+          "scout",
+          "specter"
+        ],
+        "difficulty": "hard",
+        "trigger": "random"
+      }
+    ],
+    "the_weeping_wall": [
+      {
+        "description": "A patch of luminous moss at the wall's base begins to pulse with a slow, sickly rhythm. The mud around it bubbles and heaves, and from the bog rises a humanoid figure sculpted from clay, moss, and weeping water\u2014a 'Weeping Effigy.' It moves with a slow, deliberate grace, trailing water and glowing spores. Its face is a smooth, featureless oval except for two dark hollows where eyes might be. It doesn't attack immediately, but instead reaches out with dripping hands toward the wall, as if trying to press itself back into the stone. If disturbed, it defends itself with surprising strength, its blows carrying the cold, heavy weight of sodden earth.",
+        "monster_ids": [
+          "shambling-mound",
+          "violet-fungus"
+        ],
+        "difficulty": "hard",
+        "trigger": "random"
+      },
+      {
+        "description": "Perched on a precarious ledge thirty feet up, where a rust-streaked mine entrance yawns, is a single, massive Giant Owl. Its feathers are matted and discolored by the mineral-rich spray, giving it a mottled, stone-like appearance. It watches the party with unblinking, golden eyes that seem far too knowing. It does not hoot, but the sub-audible hum of the wall seems to modulate slightly in its presence. Scattered around its perch are old, gnawed bones and several small, polished river stones arranged in a deliberate pattern.",
+        "monster_ids": [
+          "giant-owl"
+        ],
+        "difficulty": "easy",
+        "trigger": "scripted"
+      },
+      {
+        "description": "The boggy ground near the wall suddenly erupts as a swarm of pale, blind Giant Centipedes wriggle to the surface, disturbed by the party's passage. They are drawn to warmth and vibration, skittering over rocks and through the shallow water with unnerving speed. Their carapaces are slick with the wall's weeping moisture, and they move in a chaotic, rippling wave. Mixed among them are patches of Violet Fungus, their stalks trembling and releasing a faint, paralytic spore cloud where the centipedes churn the mud most violently.",
+        "monster_ids": [
+          "swarm-of-centipedes",
+          "giant-centipede",
+          "violet-fungus"
+        ],
+        "difficulty": "medium",
+        "trigger": "random"
+      },
+      {
+        "description": "As the party rests or studies the wall, the water patterns seem to shift and coalesce. From the slick stone, a humanoid shape of pure, flowing water and shimmering light steps forth\u2014a Water Elemental, but unlike any typical one. Its form is vaguely feminine and weeping continuously, its features blurred and sorrowful. It does not speak, but the hum of the wall rises into a palpable, dirge-like thrum in its presence. It moves through the bog and mist without a sound, reaching out as if to embrace or perhaps drown. The air grows colder, and the luminous moss dims where it passes.",
+        "monster_ids": [
+          "water-elemental",
+          "specter"
+        ],
+        "difficulty": "deadly",
+        "trigger": "scripted"
+      }
+    ],
+    "founders_row": [
+      {
+        "description": "As dusk falls and the lamplights flicker on, the looped sounds of supper begin\u2014but tonight, something is different. The child's laugh from Cottage 3 stutters, repeats, then elongates into a thin, panicked wail that doesn't fade. The black-lacquered door of Cottage 3 swings open silently, revealing a dining room frozen in mid-motion. The family's Echoes are still seated, but their forms have become translucent and warped, like figures seen through flawed glass. Their faces are turned toward the empty eighth chair at the head of the table, and their hands are pressed against an invisible barrier, as if trying to push through to our side. The air grows cold, and the scent of ozone and damp earth fills the room.",
+        "monster_ids": [
+          "specter",
+          "specter",
+          "ghost"
+        ],
+        "difficulty": "hard",
+        "trigger": "scripted"
+      },
+      {
+        "description": "In the pristine garden of Cottage 6, the party finds a single rosebush in full, crimson bloom\u2014impossible for the season. Its scent is overpoweringly sweet, with a metallic undertone. As they approach, the shadows cast by the lamplight from the cottage window don't move with the light. Instead, they deepen and coalesce into humanoid shapes that rise from the flowerbeds. They are not solid, but have the texture of pressed flowers and thorns, moving with a rustling, tearing sound. Their eyes are dark voids that drink the light.",
+        "monster_ids": [
+          "shadow",
+          "shadow",
+          "shadow",
+          "shadow"
+        ],
+        "difficulty": "medium",
+        "trigger": "random"
+      },
+      {
+        "description": "During the day, the Row is utterly silent. In the spotless window of Cottage 2, a small, gray cat is sitting, meticulously washing its paw. It looks real, its fur slightly matted, but it does not blink or acknowledge anyone outside. If the party enters the cottage, they find the cat is not there. The table is set, the fire is laid (but cold), and on the mantelpiece is a child's wooden soldier, painted in fading blues and reds. If a party member picks up the soldier, they feel a sudden, vivid sensory memory-not their own: the smell of sawdust and linseed oil, the sound of a man humming a work song, a feeling of profound safety. When they look back at the window, seven cats now sit in a line on the sill outside, all identical, all washing the same paw in unison. Their heads then turn slowly to look at the party member holding the toy.",
+        "monster_ids": [
+          "cat",
+          "cat",
+          "cat",
+          "cat",
+          "cat",
+          "cat",
+          "cat"
+        ],
+        "difficulty": "easy",
+        "trigger": "scripted"
+      }
+    ],
+    "the_archive_of_salt": [
+      {
+        "description": "A faint, crystalline hum fills the air as the players approach the oldest section of shelves. The salt in the founder's urns has crystallized into tiny quartz-like structures that vibrate in unison. As they examine one, the vibrations sync with their heartbeat, and a translucent, shimmering figure coalesces from the salt-dust in the air\u2014not hostile, but mournfully trying to communicate. It gestures to its urn, then to the Weeping Wall outside, its form flickering with suppressed anguish.",
+        "monster_ids": [
+          "specter",
+          "specter"
+        ],
+        "difficulty": "medium",
+        "trigger": "scripted"
+      },
+      {
+        "description": "The archive is never truly empty. As the players move through the aisles, they notice the salt isn't just still\u2014it's subtly shifting. In a dim corner, a bowl of grey mountain salt has overflowed, forming a small, slow-moving mound that glistens wetly. It reacts to movement, extending pseudopods toward nearby shelves as if seeking to 'consume' other salts, leaving behind a faint, briny residue. It moves with a quiet, relentless hunger.",
+        "monster_ids": [
+          "gray-ooze"
+        ],
+        "difficulty": "easy",
+        "trigger": "random"
+      },
+      {
+        "description": "In the deepest, driest chamber of the archive, where the air smells of ancient dust and dried seaweed, the players find a caretaker\u2014or what's left of one. An old, hunched figure in a salt-stained robe moves with painful slowness, rearranging urns with trembling hands. His eyes are milky, his skin parched like parchment. He does not attack, but if approached suddenly, his body cracks, and from the fissures pour forth not blood, but a swarm of tiny, crystalline insects that click and hum with the same frequency as the walls.",
+        "monster_ids": [
+          "commoner",
+          "swarm-of-insects"
+        ],
+        "difficulty": "hard",
+        "trigger": "scripted"
+      }
+    ],
+    "threshold_of_echoes": [
+      {
+        "description": "The heartstone pulses, and the air thickens with psychic pressure. From the smooth walls, translucent figures begin to coalesce\u2014not ghosts, but psychic impressions made solid. They are the Echoes of miners who died here, their forms flickering between humanoid shapes and jagged crystal growths. Their movements are jerky, like a broken clockwork, and they whisper in overlapping voices: 'The stone remembers... the stone bleeds...' They don't attack immediately, but drift toward the heartstone as if drawn, their presence causing the whispers in the air to become a deafening chorus of fragmented memories.",
+        "monster_ids": [
+          "specter",
+          "specter",
+          "shadow",
+          "shadow"
+        ],
+        "difficulty": "hard",
+        "trigger": "scripted"
+      },
+      {
+        "description": "The chamber's strange acoustics warp a sound from the entrance tunnel\u2014a low, grinding rumble. A section of the fused stone wall begins to *flow*, losing its solidity as a massive, amorphous form pulls itself free. It's a black pudding, but unlike any natural specimen: its surface glitters with embedded flecks of heartstone crystal, and it moves with a slow, deliberate intelligence. It doesn't seem hostile, merely... curious. It extends pseudopods to taste the air near the characters, leaving behind faint, phosphorescent trails that smell of ozone and old blood.",
+        "monster_ids": [
+          "black-pudding"
+        ],
+        "difficulty": "medium",
+        "trigger": "random"
+      },
+      {
+        "description": "Silence falls abruptly, a pocket of absolute quiet in the whispering chamber. From this void steps a single figure\u2014a wight, but its form is wrong. Its armor is pitted stone, and its eyes are empty sockets filled with the same bruised-gold light as the heartstone. It moves with a terrible, slow purpose, ignoring the characters unless they block its path to the floating crystal. It carries a miner's pickaxe fused to its stony hand. If engaged, it fights with a chilling, emotionless efficiency. When damaged, cracks appear in its stony flesh, leaking not blood, but a cold, silent light.",
+        "monster_ids": [
+          "wight"
+        ],
+        "difficulty": "medium",
+        "trigger": "scripted"
+      },
+      {
+        "description": "The whispers coalesce into a single, coherent voice\u2014a child's, singing a half-remembered lullaby. The light in the chamber dims and concentrates into a soft, will-o'-wisp glow that dances around the heartstone. More lights appear, not as monsters, but as manifestations: a swarm of glowing, moth-like constructs of pure light and sound. They are beautiful and harmless, but their gentle brushing against a character's skin delivers not damage, but a sudden, overwhelming sensory memory\u2014the taste of a first kiss, the smell of rain on dry earth, the crushing grief of a funeral\u2014all stolen from the Echo and played on a loop.",
+        "monster_ids": [
+          "will-o-wisp",
+          "will-o-wisp",
+          "swarm-of-insects"
+        ],
+        "difficulty": "easy",
+        "trigger": "random"
+      }
+    ]
+  }
+}
