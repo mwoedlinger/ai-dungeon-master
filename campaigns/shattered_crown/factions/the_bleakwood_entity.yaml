@@ -1,9 +1,0 @@
-id: the_bleakwood_entity
-name: The Bleakwood Entity
-description: An ancient, nameless thing that feeds on despair and bargains. It has no true form.
-goals: Spread its influence beyond the Bleakwood. The curse spreading through Davan is its first step.
-allies:
-- Davan Mora
-- Twig Blights
-- Ghouls
-enemies: []

@@ -54,6 +54,20 @@ class AnthropicBackend(LLMBackend):
             response = stream.get_final_message()
         return self._from_response(response)
 
+    def generate(
+        self,
+        system: str,
+        messages: list[dict],
+        max_tokens: int = 4096,
+    ) -> str:
+        response = self._client.messages.create(
+            model=self.model,
+            system=system,
+            messages=self._to_wire(messages),
+            max_tokens=max_tokens,
+        )
+        return response.content[0].text
+
     def compress(
         self,
         system: str,

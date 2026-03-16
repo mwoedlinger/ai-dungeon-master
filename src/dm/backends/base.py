@@ -44,6 +44,21 @@ class LLMBackend(ABC):
             on_text_chunk(result.text)
         return result
 
+    def generate(
+        self,
+        system: str,
+        messages: list[dict],
+        max_tokens: int = 4096,
+    ) -> str:
+        """Text generation using the main model without tools.
+
+        Used for creative tasks like campaign generation where we want the
+        full model's capability but don't need tool calling.
+        Default implementation delegates to complete() with empty tools.
+        """
+        result = self.complete(system, messages, tools=[], max_tokens=max_tokens)
+        return result.text
+
     @abstractmethod
     def compress(
         self,

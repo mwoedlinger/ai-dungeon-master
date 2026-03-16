@@ -1,7 +1,0 @@
-id: kings_road_south
-name: King's Road South
-description: A rutted road heading south toward the city of Valdris. Bandits have been spotted here since the king's death.
-  The journey takes two days on foot.
-connected_to:
-- thornfield
-parent: null

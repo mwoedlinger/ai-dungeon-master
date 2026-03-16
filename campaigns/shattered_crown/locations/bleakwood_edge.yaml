@@ -1,9 +1,0 @@
-id: bleakwood_edge
-name: Edge of the Bleakwood
-description: "Ancient forest, unnaturally dark even at midday. The treeline marks a palpable shift in temperature \u2014 ten\
-  \ degrees cooler, the air carrying a faint smell of rot and old magic. Animal sounds stop abruptly at the threshold. Locals\
-  \ avoid it. The underbrush is thick with twisted twig blights that look exactly like dead shrubs... until they move."
-connected_to:
-- thornfield
-- bleakwood_depths
-parent: null

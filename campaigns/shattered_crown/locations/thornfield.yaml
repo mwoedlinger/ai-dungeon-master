@@ -1,9 +1,0 @@
-id: thornfield
-name: Thornfield Village
-description: A muddy crossroads village of rough-hewn timber buildings at the edge of the Bleakwood. A palisade wall offers
-  modest protection. The Broken Antler Tavern is the social heart of the settlement. A stone chapel to Pelor stands near the
-  well. Locals watch strangers with wary eyes.
-connected_to:
-- bleakwood_edge
-- kings_road_south
-parent: null
