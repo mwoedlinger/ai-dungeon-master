@@ -83,6 +83,13 @@ class Character(BaseModel):
     shield: bool = False
     inventory: list[Item] = []
 
+    background: str | None = None
+    alignment: str | None = None
+    personality_traits: str | None = None
+    ideals: str | None = None
+    bonds: str | None = None
+    flaws: str | None = None
+
     conditions: list[str] = []
     concentration: str | None = None
     death_saves: DeathSaves = DeathSaves()

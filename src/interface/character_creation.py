@@ -6,7 +6,7 @@ import re
 from rich.console import Console
 from rich.table import Table
 
-from src.engine.progression import CLASS_TEMPLATES, RACES, get_spell_slots_for_level
+from src.engine.progression import ALIGNMENTS, BACKGROUNDS, CLASS_TEMPLATES, RACES, get_spell_slots_for_level
 from src.engine.rules import proficiency_bonus_for_level
 from src.models.character import AbilityScores, Armor, Character, Weapon
 
@@ -88,6 +88,15 @@ def _create_one_character(n: int, existing_ids: set[str]) -> Character:
 
     race = _pick("Race", RACES, default="Human")
     class_name = _pick("Class", sorted(CLASS_TEMPLATES.keys()), default="Fighter")
+    background = _pick("Background", sorted(BACKGROUNDS.keys()), default="Folk Hero")
+    alignment = _pick("Alignment", ALIGNMENTS, default="Neutral Good")
+
+    # Personality (all optional — press Enter to skip)
+    console.print("[dim]Describe your character's personality (press Enter to skip any):[/dim]")
+    personality_traits = console.input("  Personality traits: ").strip() or None
+    ideals = console.input("  Ideals: ").strip() or None
+    bonds = console.input("  Bonds: ").strip() or None
+    flaws = console.input("  Flaws: ").strip() or None
 
     template = CLASS_TEMPLATES[class_name]
     stat_map = _assign_stats(class_name)
@@ -135,13 +144,18 @@ def _create_one_character(n: int, existing_ids: set[str]) -> Character:
     # Spell slots at level 1
     spell_slots = get_spell_slots_for_level(class_name, 1)
 
-    # Choose 2 skills from options
-    skill_options = template["skill_options"]
+    # Background skill proficiencies (automatic)
+    bg_data = BACKGROUNDS[background]
+    bg_skills = list(bg_data["skill_proficiencies"])
+    console.print(f"[dim]Background ({background}) grants: {', '.join(bg_skills)}[/dim]")
+
+    # Choose 2 class skills (excluding background skills already granted)
+    skill_options = [s for s in template["skill_options"] if s not in bg_skills]
     console.print(f"[dim]Choose 2 skill proficiencies from: {', '.join(skill_options)}[/dim]")
-    skills: list[str] = []
+    skills: list[str] = list(bg_skills)
     opts_lower = [s.lower() for s in skill_options]
-    while len(skills) < 2:
-        raw = console.input(f"  Skill {len(skills) + 1}: ").strip()
+    while len(skills) < len(bg_skills) + 2:
+        raw = console.input(f"  Skill {len(skills) - len(bg_skills) + 1}: ").strip()
         if raw.lower() in opts_lower:
             picked = skill_options[opts_lower.index(raw.lower())]
             if picked not in skills:
@@ -182,10 +196,16 @@ def _create_one_character(n: int, existing_ids: set[str]) -> Character:
         class_resources=dict(template["class_resources"]),
         weapons=weapons,
         armor=armor,
+        background=background,
+        alignment=alignment,
+        personality_traits=personality_traits,
+        ideals=ideals,
+        bonds=bonds,
+        flaws=flaws,
         is_player=True,
     )
 
-    console.print(f"\n[green]  ✓ {name} the {race} {class_name} — HP {max_hp}, AC {ac}[/green]")
+    console.print(f"\n[green]  ✓ {name} the {race} {class_name} ({background}) — HP {max_hp}, AC {ac}[/green]")
     return char
 
 

@@ -185,9 +185,24 @@ class ContextManager:
                     for k, v in sorted(char.spell_slots.items())
                 )
                 slots = f" | Slots: {slot_str}"
-            lines.append(
-                f"- **{char.name}** ({char.race} {char.class_name} {char.level}) — {status}{slots}"
-            )
+            header = f"{char.race} {char.class_name} {char.level}"
+            if char.background:
+                header += f", {char.background}"
+            if char.alignment:
+                header += f", {char.alignment}"
+            lines.append(f"- **{char.name}** ({header}) — {status}{slots}")
+            # Personality context for roleplay guidance
+            personality_parts = []
+            if char.personality_traits:
+                personality_parts.append(f"Traits: {char.personality_traits}")
+            if char.ideals:
+                personality_parts.append(f"Ideals: {char.ideals}")
+            if char.bonds:
+                personality_parts.append(f"Bonds: {char.bonds}")
+            if char.flaws:
+                personality_parts.append(f"Flaws: {char.flaws}")
+            if personality_parts:
+                lines.append(f"  *{'; '.join(personality_parts)}*")
         return "\n".join(lines)
 
     def _active_quests_compact(self) -> str:

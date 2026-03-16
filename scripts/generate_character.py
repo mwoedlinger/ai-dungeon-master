@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.dm.backends import PROVIDERS, create_backend
-from src.engine.progression import CLASS_TEMPLATES, RACES, get_spell_slots_for_level
+from src.engine.progression import ALIGNMENTS, BACKGROUNDS, CLASS_TEMPLATES, RACES, get_spell_slots_for_level
 from src.engine.rules import proficiency_bonus_for_level, xp_for_level
 from src.models.character import AbilityScores, Armor, Character, Item, Weapon
 
@@ -35,7 +35,12 @@ Output a JSON object with this EXACT schema:
       "race": "<one of: {races}>",
       "class_name": "<one of: {classes}>",
       "subclass": "<appropriate subclass for the class, or null>",
-      "personality": "<2-3 sentences of personality and mannerisms>",
+      "background": "<one of: {backgrounds}>",
+      "alignment": "<one of: {alignments}>",
+      "personality_traits": "<1-2 personality traits>",
+      "ideals": "<what this character believes in>",
+      "bonds": "<what ties this character to the world>",
+      "flaws": "<a weakness or vice>",
       "backstory": "<2-3 sentences of backstory>",
       "ability_priority": ["<six abilities from highest to lowest priority: STR, DEX, CON, INT, WIS, CHA>"],
       "skill_choices": ["<exactly 2 skills from the class skill list>"],
@@ -184,6 +189,16 @@ def build_character(sketch: dict, level: int) -> Character:
 
     prof_bonus = proficiency_bonus_for_level(level)
 
+    # Background — validate against known backgrounds, fallback to Folk Hero
+    background = sketch.get("background", "Folk Hero")
+    if background not in BACKGROUNDS:
+        background = "Folk Hero"
+    bg_skills = BACKGROUNDS[background]["skill_proficiencies"]
+    # Add background skills (deduplicated)
+    for s in bg_skills:
+        if s not in skills:
+            skills.append(s)
+
     return Character(
         id=first_word,
         name=sketch["name"],
@@ -211,6 +226,12 @@ def build_character(sketch: dict, level: int) -> Character:
         weapons=weapons,
         armor=armor,
         inventory=inventory,
+        background=background,
+        alignment=sketch.get("alignment"),
+        personality_traits=sketch.get("personality_traits"),
+        ideals=sketch.get("ideals"),
+        bonds=sketch.get("bonds"),
+        flaws=sketch.get("flaws"),
     )
 
 
@@ -231,6 +252,8 @@ def main() -> None:
     system = SYSTEM_PROMPT.format(
         races=", ".join(RACES),
         classes=", ".join(CLASS_TEMPLATES),
+        backgrounds=", ".join(sorted(BACKGROUNDS)),
+        alignments=", ".join(ALIGNMENTS),
         count=count,
     )
     user_msg = {

@@ -223,8 +223,24 @@ def _show_character_sheet(char_id: str, ctx: CommandContext) -> None:
 
     lines: list[str] = []
     lines.append(f"[bold]{char.name}[/bold]")
-    lines.append(f"{char.race} {char.class_name}{f' ({char.subclass})' if char.subclass else ''} — Level {char.level}")
+    header = f"{char.race} {char.class_name}{f' ({char.subclass})' if char.subclass else ''} — Level {char.level}"
+    if char.background:
+        header += f" | {char.background}"
+    if char.alignment:
+        header += f" | {char.alignment}"
+    lines.append(header)
     lines.append(f"XP: {char.xp}")
+    # Personality
+    if any([char.personality_traits, char.ideals, char.bonds, char.flaws]):
+        lines.append("")
+        if char.personality_traits:
+            lines.append(f"  Traits: {char.personality_traits}")
+        if char.ideals:
+            lines.append(f"  Ideals: {char.ideals}")
+        if char.bonds:
+            lines.append(f"  Bonds: {char.bonds}")
+        if char.flaws:
+            lines.append(f"  Flaws: {char.flaws}")
     lines.append("")
 
     # Ability scores

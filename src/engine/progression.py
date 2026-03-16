@@ -574,3 +574,62 @@ CLASS_TEMPLATES: dict[str, dict] = {
 }
 
 RACES = ["Human", "Elf", "Dwarf", "Halfling", "Half-Elf", "Half-Orc", "Gnome", "Tiefling", "Dragonborn"]
+
+ALIGNMENTS = [
+    "Lawful Good", "Neutral Good", "Chaotic Good",
+    "Lawful Neutral", "True Neutral", "Chaotic Neutral",
+    "Lawful Evil", "Neutral Evil", "Chaotic Evil",
+]
+
+# SRD backgrounds — skill proficiencies and starting equipment.
+# Only Acolyte is in the SRD API, but these are from the Basic Rules / SRD 5.1.
+BACKGROUNDS: dict[str, dict] = {
+    "Acolyte": {
+        "skill_proficiencies": ["Insight", "Religion"],
+        "equipment": ["Holy symbol", "Prayer book", "5 sticks of incense", "Vestments", "15 gp"],
+    },
+    "Criminal": {
+        "skill_proficiencies": ["Deception", "Stealth"],
+        "equipment": ["Crowbar", "Dark common clothes with hood", "15 gp"],
+    },
+    "Folk Hero": {
+        "skill_proficiencies": ["Animal Handling", "Survival"],
+        "equipment": ["Artisan's tools", "Shovel", "Iron pot", "Common clothes", "10 gp"],
+    },
+    "Noble": {
+        "skill_proficiencies": ["History", "Persuasion"],
+        "equipment": ["Fine clothes", "Signet ring", "Scroll of pedigree", "25 gp"],
+    },
+    "Sage": {
+        "skill_proficiencies": ["Arcana", "History"],
+        "equipment": ["Bottle of ink", "Quill", "Small knife", "Letter from colleague", "Common clothes", "10 gp"],
+    },
+    "Soldier": {
+        "skill_proficiencies": ["Athletics", "Intimidation"],
+        "equipment": ["Insignia of rank", "Trophy from fallen enemy", "Dice set", "Common clothes", "10 gp"],
+    },
+    "Charlatan": {
+        "skill_proficiencies": ["Deception", "Sleight of Hand"],
+        "equipment": ["Fine clothes", "Disguise kit", "Con tools", "15 gp"],
+    },
+    "Entertainer": {
+        "skill_proficiencies": ["Acrobatics", "Performance"],
+        "equipment": ["Musical instrument", "Favor from admirer", "Costume", "15 gp"],
+    },
+    "Hermit": {
+        "skill_proficiencies": ["Medicine", "Religion"],
+        "equipment": ["Scroll case with notes", "Winter blanket", "Herbalism kit", "Common clothes", "5 gp"],
+    },
+    "Outlander": {
+        "skill_proficiencies": ["Athletics", "Survival"],
+        "equipment": ["Staff", "Hunting trap", "Trophy from animal", "Traveler's clothes", "10 gp"],
+    },
+    "Sailor": {
+        "skill_proficiencies": ["Athletics", "Perception"],
+        "equipment": ["Belaying pin (club)", "50 ft silk rope", "Lucky charm", "Common clothes", "10 gp"],
+    },
+    "Urchin": {
+        "skill_proficiencies": ["Sleight of Hand", "Stealth"],
+        "equipment": ["Small knife", "Map of home city", "Pet mouse", "Token from parents", "Common clothes", "10 gp"],
+    },
+}
