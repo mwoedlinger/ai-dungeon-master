@@ -279,7 +279,7 @@ def main() -> None:
     ]
 
     # Run session
-    session = SessionManager(dm, game_state, event_log, player_names)
+    session = SessionManager(dm, game_state, event_log, player_names, save_path=args.autosave)
     try:
         session.run()
     except TypeError as e:

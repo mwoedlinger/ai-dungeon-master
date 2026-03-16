@@ -17,6 +17,7 @@ from src.interface.cli import (
     display_narrative,
     display_status_bar,
 )
+from src.interface.commands import CommandContext, clear_location_cache, try_handle_command
 from src.log.event_log import EventLog
 
 
@@ -32,13 +33,16 @@ class SessionManager:
         game_state: GameState,
         event_log: EventLog,
         player_names: list[str] | None = None,
+        save_path: str = "saves/autosave.json",
     ):
         self.dm = dm
         self.game_state = game_state
         self.event_log = event_log
         self.player_names = player_names or ["Player 1", "Player 2"]
+        self.save_path = save_path
         self.mode = TurnMode.EXPLORATION
         self._last_event_idx = 0
+        self._last_location_id: str | None = None
 
     def run(self) -> None:
         """Main game loop."""
@@ -58,10 +62,24 @@ class SessionManager:
                 else:
                     self._exploration_input_loop()
             except KeyboardInterrupt:
-                console.print("\n[dim]Use 'quit' or 'exit' to save and quit.[/dim]")
+                console.print("\n[dim]Use /quit to save and quit, or /exit to quit without saving.[/dim]")
             except EOFError:
                 console.print("\n[dim]Session ended.[/dim]")
                 break
+
+    def _build_command_context(self) -> CommandContext:
+        return CommandContext(
+            game_state=self.game_state,
+            dm=self.dm,
+            save_path=self.save_path,
+        )
+
+    def _check_location_change(self) -> None:
+        """Clear location description cache when the party moves."""
+        loc_id = self.game_state.world.current_location_id
+        if self._last_location_id is not None and loc_id != self._last_location_id:
+            clear_location_cache()
+        self._last_location_id = loc_id
 
     def _exploration_input_loop(self) -> None:
         display_status_bar(self.game_state)
@@ -74,19 +92,23 @@ class SessionManager:
         if not player_input:
             return
 
+        # Handle slash commands
+        if player_input.startswith("/"):
+            ctx = self._build_command_context()
+            try_handle_command(player_input, ctx)
+            if ctx.should_exit:
+                raise EOFError
+            return
+
+        # Legacy bare-word shortcuts for backward compat
         if player_input.lower() in ("quit", "exit", "q"):
             self._process_and_render("[Player requests to save and quit the session.]")
             raise EOFError
 
-        if player_input.lower() in ("/recap", "recap"):
-            console.print("\n[dim]Generating session recap...[/dim]")
-            recap = self.dm.generate_session_recap()
-            console.print(Panel(recap, title="[bold]Session Recap[/bold]", border_style="cyan"))
-            return
-
         # Clear screen and redraw for new turn
         clear_screen()
         display_header()
+        self._check_location_change()
         self._process_and_render(player_input)
 
         # Check if combat started
@@ -123,6 +145,13 @@ class SessionManager:
             except (KeyboardInterrupt, EOFError):
                 raise
             if not player_input:
+                return
+            # Slash commands work in combat too
+            if player_input.startswith("/"):
+                ctx = self._build_command_context()
+                try_handle_command(player_input, ctx)
+                if ctx.should_exit:
+                    raise EOFError
                 return
             if player_input.lower() in ("quit", "exit", "q"):
                 raise EOFError

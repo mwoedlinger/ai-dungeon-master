@@ -25,7 +25,7 @@ def clear_screen() -> None:
 def display_header() -> None:
     """Display the game header after clearing."""
     console.print("[bold green]═══ AI Dungeon Master ═══[/bold green]")
-    console.print("[dim]Commands: quit | /recap[/dim]\n")
+    console.print("[dim]Type /help for commands[/dim]\n")
 
 
 class NarrativeStreamer:
