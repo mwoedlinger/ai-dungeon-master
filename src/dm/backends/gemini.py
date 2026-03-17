@@ -9,6 +9,10 @@ from src.dm.backends.base import LLMBackend, LLMResponse, ToolCall
 class GeminiBackend(LLMBackend):
     def __init__(self, model: str) -> None:
         self.model = model
+
+    @property
+    def context_window(self) -> int:
+        return 1_000_000  # Gemini 2.0 Flash
         try:
             from google import genai
             self._client = genai.Client()

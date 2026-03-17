@@ -25,13 +25,16 @@ class WorldJournal(BaseModel):
 
     # --- Global layer: big-picture story beats ---
     global_summary: str = ""  # LLM-generated rolling summary of the campaign arc
+    conversation_summary: str = ""  # rolling summary of conversation history (survives save/load)
     global_entries: list[JournalEntry] = []  # major events only
 
     # --- Location layer: detailed per-location notes ---
     location_entries: dict[str, list[JournalEntry]] = {}  # location_id -> entries
+    location_summaries: dict[str, str] = {}  # location_id -> prose summary of events there
 
-    # --- NPC attitudes ---
+    # --- NPC layer ---
     npc_attitudes: dict[str, NpcAttitude] = {}  # npc_id -> attitude
+    npc_summaries: dict[str, str] = {}  # npc_id -> prose summary of interactions
 
     # --- World flags for branching state ---
     world_flags: dict[str, str] = {}  # e.g. {"bridge_destroyed": "true"}
@@ -92,6 +95,18 @@ class WorldJournal(BaseModel):
 
     def mark_summary_refreshed(self) -> None:
         self._entries_since_summary = 0
+
+    def prune_summarized_entries(self, keep_recent: int = 5) -> None:
+        """Prune old raw entries for locations/globals that have summaries.
+
+        Keeps the most recent `keep_recent` entries per location so the DM
+        has immediate context. Older events are captured in the summary.
+        """
+        for loc_id, entries in self.location_entries.items():
+            if loc_id in self.location_summaries and len(entries) > keep_recent:
+                self.location_entries[loc_id] = entries[-keep_recent:]
+        if self.global_summary and len(self.global_entries) > keep_recent:
+            self.global_entries = self.global_entries[-keep_recent:]
 
     # --- Query helpers ---
 

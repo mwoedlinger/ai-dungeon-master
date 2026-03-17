@@ -21,6 +21,11 @@ class LLMResponse:
 
 
 class LLMBackend(ABC):
+    @property
+    def context_window(self) -> int:
+        """Maximum context window in tokens for the current model."""
+        return 128_000  # conservative default
+
     @abstractmethod
     def complete(
         self,

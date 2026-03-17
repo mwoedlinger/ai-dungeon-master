@@ -182,8 +182,8 @@ class TestJournalManager:
         manager.record_event("Met Bram", location_id="tavern", involved_npcs=["bram"])
         block = manager.get_context_block("tavern")
         assert "Story So Far" in block
-        assert "NPC Attitudes" in block
-        assert "Events at Current Location" in block
+        assert "NPC Knowledge" in block
+        assert "Current Location History" in block
         assert "Met Bram" in block
 
 

@@ -161,24 +161,39 @@ def _cmd_location(args: str, ctx: CommandContext) -> None:
 
 
 def _cmd_journal(args: str, ctx: CommandContext) -> None:
-    """Show the world journal — recorded events and NPC attitudes."""
+    """Show the world journal — structured per-entity summaries and events."""
     journal = ctx.game_state.journal
 
     lines: list[str] = []
 
     # Global summary
-    if journal.global_summary:
+    summary = journal.global_summary or journal.conversation_summary
+    if summary:
         lines.append("[bold]Story So Far[/bold]")
-        lines.append(journal.global_summary)
+        lines.append(summary)
         lines.append("")
 
-    # NPC attitudes
-    if journal.npc_attitudes:
-        lines.append("[bold]NPC Attitudes[/bold]")
-        for npc_id, att in journal.npc_attitudes.items():
-            color = {"friendly": "green", "neutral": "yellow", "hostile": "red", "fearful": "magenta"}.get(att.disposition, "dim")
-            note = f" — {att.notes}" if att.notes else ""
-            lines.append(f"  [{color}]{npc_id}: {att.disposition}[/{color}]{note}")
+    # Location summaries
+    if journal.location_summaries:
+        lines.append("[bold]Location Notes[/bold]")
+        for loc_id, s in journal.location_summaries.items():
+            lines.append(f"  [cyan]{loc_id}[/cyan]: {s}")
+        lines.append("")
+
+    # NPC knowledge — attitudes + summaries
+    if journal.npc_attitudes or journal.npc_summaries:
+        lines.append("[bold]NPC Knowledge[/bold]")
+        for npc_id in sorted(set(journal.npc_attitudes) | set(journal.npc_summaries)):
+            att = journal.npc_attitudes.get(npc_id)
+            npc_sum = journal.npc_summaries.get(npc_id, "")
+            if att:
+                color = {"friendly": "green", "neutral": "yellow", "hostile": "red", "fearful": "magenta"}.get(att.disposition, "dim")
+                note = f" — {att.notes}" if att.notes else ""
+                lines.append(f"  [{color}]{npc_id}: {att.disposition}[/{color}]{note}")
+            else:
+                lines.append(f"  {npc_id}")
+            if npc_sum:
+                lines.append(f"    {npc_sum}")
         lines.append("")
 
     # World flags

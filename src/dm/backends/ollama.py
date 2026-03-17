@@ -11,6 +11,10 @@ _OLLAMA_BASE_URL = "http://localhost:11434/v1"
 class OllamaBackend(LLMBackend):
     def __init__(self, model: str) -> None:
         self.model = model
+
+    @property
+    def context_window(self) -> int:
+        return 8_000  # conservative default for local models
         try:
             import openai
             self._client = openai.OpenAI(

@@ -20,6 +20,10 @@ _DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 class DeepSeekBackend(LLMBackend):
     def __init__(self, model: str) -> None:
         self.model = model
+
+    @property
+    def context_window(self) -> int:
+        return 64_000
         try:
             import openai
         except ImportError as e:

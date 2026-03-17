@@ -15,6 +15,10 @@ class AnthropicBackend(LLMBackend):
         self.model = model
         self._client = _anthropic.Anthropic()
 
+    @property
+    def context_window(self) -> int:
+        return 200_000
+
     def complete(
         self,
         system: str | list[dict],

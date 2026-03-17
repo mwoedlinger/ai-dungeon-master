@@ -47,7 +47,7 @@ class DungeonMaster:
         while True:
             api_kwargs = dict(
                 system=self.context_manager.build_system_prompt_blocks(),
-                messages=self.context_manager.get_messages_for_api(),
+                messages=self.context_manager.get_messages_for_api(self.backend),
                 tools=ALL_TOOL_SCHEMAS,
                 max_tokens=2048,
             )
@@ -66,6 +66,7 @@ class DungeonMaster:
 
             if not result.tool_calls:
                 self.context_manager.add_message(result.raw_assistant_message)
+                self.context_manager.compact_tool_pairs()
                 self.context_manager.compress_if_needed(self.backend)
                 return result.text or "[The DM pauses thoughtfully...]"
 

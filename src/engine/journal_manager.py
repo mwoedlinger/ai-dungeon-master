@@ -111,44 +111,52 @@ class JournalManager:
     def get_context_block(self, current_location_id: str) -> str:
         """Build a context string for injection into the system prompt.
 
-        Includes:
-        - Global summary (always)
-        - NPC attitudes (always, compact)
-        - Current location's recent entries (detailed)
-        - Last few global entries (if any)
+        Uses structured per-entity summaries when available.
         """
+        journal = self.journal
         parts: list[str] = []
 
         # Global summary
-        if self.journal.global_summary:
-            parts.append(f"## Story So Far\n{self.journal.global_summary}")
+        summary = journal.global_summary or journal.conversation_summary
+        if summary:
+            parts.append(f"## Story So Far\n{summary}")
 
-        # NPC attitudes — compact override table
-        if self.journal.npc_attitudes:
-            lines = ["## NPC Attitudes (override campaign defaults)"]
-            for npc_id, att in self.journal.npc_attitudes.items():
-                note = f" — {att.notes}" if att.notes else ""
-                lines.append(f"- {npc_id}: {att.disposition}{note}")
+        # Current location — summary + recent entries
+        loc_summary = journal.location_summaries.get(current_location_id, "")
+        loc_entries = journal.get_location_entries(current_location_id, limit=10)
+        if loc_summary or loc_entries:
+            lines = ["## Current Location History"]
+            if loc_summary:
+                lines.append(loc_summary)
+            if loc_entries:
+                lines.append("Recent events:")
+                for e in loc_entries:
+                    npcs = f" (NPCs: {', '.join(e.involved_npcs)})" if e.involved_npcs else ""
+                    lines.append(f"- {e.event}{npcs}")
+            parts.append("\n".join(lines))
+
+        # NPC context
+        if journal.npc_attitudes or journal.npc_summaries:
+            lines = ["## NPC Knowledge"]
+            for npc_id in sorted(set(journal.npc_attitudes) | set(journal.npc_summaries)):
+                att = journal.npc_attitudes.get(npc_id)
+                npc_sum = journal.npc_summaries.get(npc_id, "")
+                att_str = f" ({att.disposition})" if att else ""
+                notes_str = f" — {att.notes}" if att and att.notes else ""
+                lines.append(f"- **{npc_id}**{att_str}{notes_str}")
+                if npc_sum:
+                    lines.append(f"  {npc_sum}")
             parts.append("\n".join(lines))
 
         # World flags
-        if self.journal.world_flags:
+        if journal.world_flags:
             lines = ["## World State Flags"]
-            for flag, value in self.journal.world_flags.items():
+            for flag, value in journal.world_flags.items():
                 lines.append(f"- {flag}: {value}")
             parts.append("\n".join(lines))
 
-        # Current location detailed notes
-        loc_entries = self.journal.get_location_entries(current_location_id, limit=15)
-        if loc_entries:
-            lines = [f"## Events at Current Location"]
-            for e in loc_entries:
-                npcs = f" (NPCs: {', '.join(e.involved_npcs)})" if e.involved_npcs else ""
-                lines.append(f"- {e.event}{npcs}")
-            parts.append("\n".join(lines))
-
-        # Recent major events (if not already covered by global summary)
-        recent_major = [e for e in self.journal.global_entries[-5:]]
+        # Recent major events
+        recent_major = journal.global_entries[-5:]
         if recent_major:
             lines = ["## Recent Major Events"]
             for e in recent_major:
