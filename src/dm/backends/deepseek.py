@@ -20,10 +20,6 @@ _DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 class DeepSeekBackend(LLMBackend):
     def __init__(self, model: str) -> None:
         self.model = model
-
-    @property
-    def context_window(self) -> int:
-        return 64_000
         try:
             import openai
         except ImportError as e:
@@ -37,6 +33,10 @@ class DeepSeekBackend(LLMBackend):
                 "DEEPSEEK_API_KEY environment variable is not set."
             )
         self._client = openai.OpenAI(base_url=_DEEPSEEK_BASE_URL, api_key=api_key)
+
+    @property
+    def context_window(self) -> int:
+        return 64_000
 
     def complete(
         self,
