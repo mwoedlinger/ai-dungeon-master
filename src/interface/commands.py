@@ -15,10 +15,6 @@ if TYPE_CHECKING:
     from src.engine.game_state import GameState
 
 
-# Cache for /location descriptions (keyed by location_id)
-_location_cache: dict[str, str] = {}
-
-
 @dataclass
 class CommandContext:
     """Everything a command handler might need."""
@@ -28,11 +24,6 @@ class CommandContext:
     # Set by the session manager when the command signals an exit
     should_exit: bool = False
     should_save: bool = False
-
-
-def clear_location_cache() -> None:
-    """Clear cached /location descriptions (e.g. on location change)."""
-    _location_cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +126,7 @@ def _cmd_inventory(args: str, ctx: CommandContext) -> None:
 
 
 def _cmd_location(args: str, ctx: CommandContext) -> None:
-    """Show/generate a description of the current location."""
+    """Show current location description and journal notes."""
     world = ctx.game_state.world
     loc_id = world.current_location_id
     loc = world.locations.get(loc_id)
@@ -143,21 +134,25 @@ def _cmd_location(args: str, ctx: CommandContext) -> None:
         console.print("[red]Unknown current location.[/red]")
         return
 
-    if loc_id in _location_cache:
-        console.print(Panel(_location_cache[loc_id], title=f"[bold cyan]{loc.name}[/bold cyan]", border_style="cyan"))
-        return
+    lines: list[str] = [loc.description]
 
-    # Generate a richer description via the LLM
-    console.print("[dim]Generating location description...[/dim]")
-    prompt = (
-        f"[System: The player used /location. Describe the current location '{loc.name}' "
-        f"in 2-3 vivid paragraphs. Base description: {loc.description}. "
-        f"Include sensory details — what do they see, hear, smell? "
-        f"Do NOT advance the story or introduce new events. Just paint the scene.]"
-    )
-    description = ctx.dm.process_player_input(prompt)
-    _location_cache[loc_id] = description
-    console.print(Panel(description, title=f"[bold cyan]{loc.name}[/bold cyan]", border_style="cyan"))
+    # Append journal summary if available
+    loc_summary = ctx.game_state.journal.location_summaries.get(loc_id)
+    if loc_summary:
+        lines.append("")
+        lines.append("[bold]Notes[/bold]")
+        lines.append(loc_summary)
+
+    # Recent events at this location
+    recent = ctx.game_state.journal.get_location_entries(loc_id, limit=5)
+    if recent:
+        lines.append("")
+        lines.append("[bold]Recent Events[/bold]")
+        for e in recent:
+            icon = "★" if e.importance == "major" else "·"
+            lines.append(f"  {icon} {e.event}")
+
+    console.print(Panel("\n".join(lines), title=f"[bold cyan]{loc.name}[/bold cyan]", border_style="cyan"))
 
 
 def _cmd_journal(args: str, ctx: CommandContext) -> None:

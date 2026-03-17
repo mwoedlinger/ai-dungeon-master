@@ -8,9 +8,7 @@ import pytest
 from src.engine.game_state import GameState
 from src.interface.commands import (
     CommandContext,
-    clear_location_cache,
     try_handle_command,
-    _location_cache,
 )
 from src.models.character import AbilityScores, Armor, Character, Item, Weapon
 from src.models.combat import CombatState
@@ -91,13 +89,6 @@ def ctx(game_state) -> CommandContext:
     return CommandContext(game_state=game_state, dm=dm, save_path="/tmp/test_save.json")
 
 
-@pytest.fixture(autouse=True)
-def _clean_cache():
-    clear_location_cache()
-    yield
-    clear_location_cache()
-
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -171,16 +162,16 @@ def test_unknown_command(ctx):
     assert try_handle_command("/foobar", ctx) is True  # handled (prints error)
 
 
-def test_slash_location_cached(ctx):
-    """Second call for same location returns cached description."""
-    ctx.dm.process_player_input.return_value = "A vivid description."
+def test_slash_location_shows_description(ctx):
+    """/location shows the campaign description without an LLM call."""
     try_handle_command("/location", ctx)
-    # First call triggers LLM
-    ctx.dm.process_player_input.assert_called_once()
+    ctx.dm.process_player_input.assert_not_called()
 
-    ctx.dm.process_player_input.reset_mock()
+
+def test_slash_location_with_journal_notes(ctx):
+    """/location includes journal summary when available."""
+    ctx.game_state.journal.location_summaries["thornfield"] = "The village is tense."
     try_handle_command("/location", ctx)
-    # Second call uses cache — no LLM call
     ctx.dm.process_player_input.assert_not_called()
 
 

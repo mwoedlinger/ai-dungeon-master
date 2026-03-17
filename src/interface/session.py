@@ -17,7 +17,7 @@ from src.interface.cli import (
     display_narrative,
     display_status_bar,
 )
-from src.interface.commands import CommandContext, clear_location_cache, try_handle_command
+from src.interface.commands import CommandContext, try_handle_command
 from src.log.event_log import EventLog
 
 
@@ -42,7 +42,6 @@ class SessionManager:
         self.save_path = save_path
         self.mode = TurnMode.EXPLORATION
         self._last_event_idx = 0
-        self._last_location_id: str | None = None
 
     def run(self) -> None:
         """Main game loop."""
@@ -74,13 +73,6 @@ class SessionManager:
             save_path=self.save_path,
         )
 
-    def _check_location_change(self) -> None:
-        """Clear location description cache when the party moves."""
-        loc_id = self.game_state.world.current_location_id
-        if self._last_location_id is not None and loc_id != self._last_location_id:
-            clear_location_cache()
-        self._last_location_id = loc_id
-
     def _exploration_input_loop(self) -> None:
         display_status_bar(self.game_state)
         console.print("")
@@ -108,7 +100,6 @@ class SessionManager:
         # Clear screen and redraw for new turn
         clear_screen()
         display_header()
-        self._check_location_change()
         self._process_and_render(player_input)
 
         # Check if combat started
