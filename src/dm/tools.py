@@ -367,13 +367,13 @@ _STATE_TOOLS = [
     },
     {
         "name": "lookup_srd",
-        "description": "Look up any D&D 5e SRD data: monsters, spells, equipment, classes, races, conditions, skills. Use to get stats before spawning a monster, check spell details, or look up equipment properties.",
+        "description": "Look up any D&D 5e SRD data: monsters, spells, equipment, magic-items, classes, races, conditions, skills. Use to get stats before spawning a monster, check spell details, look up equipment properties, or find magic item descriptions.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "category": {
                     "type": "string",
-                    "enum": ["monsters", "spells", "equipment", "classes", "races", "conditions", "skills", "features"],
+                    "enum": ["monsters", "spells", "equipment", "magic-items", "classes", "races", "conditions", "skills", "features"],
                     "description": "Type of SRD data to look up",
                 },
                 "query": {
@@ -392,7 +392,7 @@ _STATE_TOOLS = [
             "properties": {
                 "category": {
                     "type": "string",
-                    "enum": ["monsters", "spells", "equipment", "classes", "races", "conditions", "skills"],
+                    "enum": ["monsters", "spells", "equipment", "magic-items", "classes", "races", "conditions", "skills", "features"],
                 },
                 "query": {
                     "type": "string",

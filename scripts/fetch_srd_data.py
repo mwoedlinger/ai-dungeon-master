@@ -27,6 +27,7 @@ CATEGORIES = [
     "monsters",
     "spells",
     "equipment",
+    "magic-items",
     "classes",
     "races",
     "conditions",

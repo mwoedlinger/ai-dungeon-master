@@ -465,6 +465,54 @@ def _api_weapon_to_internal(data: dict) -> dict:
     }
 
 
+def _api_magic_item_to_internal(data: dict) -> dict:
+    """Convert dnd5eapi.co magic-item to a summary dict."""
+    desc = " ".join(data.get("desc", []))
+    rarity_obj = data.get("rarity", {})
+    rarity = rarity_obj.get("name", "Unknown") if isinstance(rarity_obj, dict) else str(rarity_obj)
+
+    # Try to infer bonus from description
+    bonus = 0
+    import re as _re
+    bonus_match = _re.search(r"\+(\d)\s+bonus", desc.lower())
+    if bonus_match:
+        bonus = int(bonus_match.group(1))
+
+    # Infer item type from equipment_category or description
+    cat = data.get("equipment_category", {})
+    cat_name = cat.get("name", "") if isinstance(cat, dict) else ""
+    desc_lower = desc.lower()
+    if "armor" in cat_name.lower() or "armor" in desc_lower[:100]:
+        item_type = "armor"
+    elif "weapon" in cat_name.lower() or "sword" in data.get("name", "").lower() or "weapon" in desc_lower[:100]:
+        item_type = "weapon"
+    elif "potion" in data.get("name", "").lower():
+        item_type = "potion"
+    elif "scroll" in data.get("name", "").lower():
+        item_type = "scroll"
+    elif "ring" in data.get("name", "").lower():
+        item_type = "ring"
+    elif "wand" in data.get("name", "").lower():
+        item_type = "wand"
+    elif "staff" in data.get("name", "").lower():
+        item_type = "staff"
+    elif "rod" in data.get("name", "").lower():
+        item_type = "rod"
+    else:
+        item_type = "wondrous"
+
+    requires_attunement = "requires attunement" in desc_lower
+
+    return {
+        "name": data.get("name", "Unknown"),
+        "item_type": item_type,
+        "bonus": bonus,
+        "rarity": rarity.lower().replace(" ", "_"),
+        "requires_attunement": requires_attunement,
+        "description": desc,
+    }
+
+
 def _api_armor_to_internal(data: dict) -> dict:
     """Convert dnd5eapi.co equipment (armor) to our Armor-compatible dict."""
     ac_info = data.get("armor_class", {})
@@ -575,6 +623,25 @@ def get_armor(name: str) -> Armor | None:
     return None
 
 
+_mem_magic_items: dict[str, dict] = {}
+
+
+def get_magic_item(name: str) -> dict | None:
+    """Get a magic item by name. Returns a summary dict or None."""
+    key = name.lower()
+    if key in _mem_magic_items:
+        return _mem_magic_items[key]
+
+    index = _to_index(name)
+    raw = _get_raw("magic-items", index)
+    if raw is not None:
+        internal = _api_magic_item_to_internal(raw)
+        _mem_magic_items[key] = internal
+        return internal
+
+    return None
+
+
 def get_index(category: str) -> list[dict[str, str]]:
     """Get the full index of a category (monsters, spells, equipment, etc.).
 
@@ -675,6 +742,15 @@ def lookup_srd(category: str, query: str) -> dict[str, Any]:
                 return {"success": False, "error": f"Equipment '{query}' not found.", "suggestions": [e["name"] for e in matches[:10]]}
             return {"success": False, "error": f"Equipment '{query}' not found."}
 
+        case "magic-items":
+            item = get_magic_item(query)
+            if item:
+                return {"success": True, **item}
+            matches = search_srd("magic-items", query)
+            if matches:
+                return {"success": False, "error": f"Magic item '{query}' not found.", "suggestions": [m["name"] for m in matches[:10]]}
+            return {"success": False, "error": f"Magic item '{query}' not found."}
+
         case "classes" | "races" | "conditions" | "skills" | "features":
             raw = _get_raw(category, index)
             if raw:
@@ -691,7 +767,7 @@ def lookup_srd(category: str, query: str) -> dict[str, Any]:
             return {"success": False, "error": f"'{query}' not found in {category}."}
 
         case _:
-            return {"success": False, "error": f"Unknown SRD category: {category!r}. Use: monsters, spells, equipment, classes, races, conditions, skills, features."}
+            return {"success": False, "error": f"Unknown SRD category: {category!r}. Use: monsters, spells, equipment, magic-items, classes, races, conditions, skills, features."}
 
 
 def clear_caches() -> None:
@@ -700,4 +776,5 @@ def clear_caches() -> None:
     _mem_spells.clear()
     _mem_weapons.clear()
     _mem_armor.clear()
+    _mem_magic_items.clear()
     _mem_indexes.clear()

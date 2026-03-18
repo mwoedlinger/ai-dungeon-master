@@ -221,6 +221,175 @@ def _cmd_recap(args: str, ctx: CommandContext) -> None:
     console.print(Panel(recap, title="[bold]Session Recap[/bold]", border_style="cyan"))
 
 
+_COMPENDIUM_CATEGORIES = [
+    "monsters", "spells", "equipment", "magic-items",
+    "classes", "races", "conditions", "skills", "features",
+]
+
+
+def _cmd_compendium(args: str, ctx: CommandContext) -> None:
+    """Search the SRD compendium. Usage: /compendium [category] [query]"""
+    from src.data.srd_client import lookup_srd, search_srd
+
+    if not args.strip():
+        console.print("[bold]SRD Compendium[/bold]")
+        console.print("  Usage: [cyan]/compendium <category> <query>[/cyan]")
+        console.print("  Search: [cyan]/compendium <category> ?<search>[/cyan]")
+        console.print(f"\n  Categories: {', '.join(_COMPENDIUM_CATEGORIES)}")
+        console.print("\n  Examples:")
+        console.print("    /compendium monsters goblin")
+        console.print("    /compendium spells fireball")
+        console.print("    /compendium equipment longsword")
+        console.print("    /compendium magic-items bag of holding")
+        console.print("    /compendium skills ?stealth")
+        console.print("    /compendium monsters ?dragon")
+        return
+
+    parts = args.strip().split(None, 1)
+    category = parts[0].lower()
+    query = parts[1] if len(parts) > 1 else ""
+
+    if category not in _COMPENDIUM_CATEGORIES:
+        # Maybe the whole args is a search query across all categories
+        console.print(f"[red]Unknown category: {category}[/red]")
+        console.print(f"  Valid categories: {', '.join(_COMPENDIUM_CATEGORIES)}")
+        return
+
+    # Search mode: /compendium monsters ?dragon
+    if query.startswith("?"):
+        search_term = query[1:].strip()
+        results = search_srd(category, search_term)
+        if not results:
+            console.print(f"[dim]No results for '{search_term}' in {category}.[/dim]")
+            return
+        table = Table(title=f"[bold]{category}[/bold] — search: '{search_term}'", box=None, padding=(0, 2))
+        table.add_column("Name", style="cyan")
+        table.add_column("Index", style="dim")
+        for entry in results[:30]:
+            table.add_row(entry["name"], entry["index"])
+        console.print(table)
+        if len(results) > 30:
+            console.print(f"[dim]  ...and {len(results) - 30} more[/dim]")
+        return
+
+    # List mode: /compendium monsters (no query)
+    if not query:
+        results = search_srd(category, "")
+        if not results:
+            console.print(f"[dim]No data cached for {category}. Run: python scripts/fetch_srd_data.py[/dim]")
+            return
+        table = Table(title=f"[bold]{category}[/bold] — {len(results)} entries", box=None, padding=(0, 2))
+        table.add_column("Name", style="cyan")
+        table.add_column("Index", style="dim")
+        for entry in results[:40]:
+            table.add_row(entry["name"], entry["index"])
+        if len(results) > 40:
+            console.print(table)
+            console.print(f"[dim]  ...and {len(results) - 40} more. Use /compendium {category} ?<search> to filter.[/dim]")
+            return
+        console.print(table)
+        return
+
+    # Lookup mode: /compendium monsters goblin
+    result = lookup_srd(category, query)
+    if not result.get("success"):
+        console.print(f"[red]{result.get('error', 'Not found.')}[/red]")
+        suggestions = result.get("suggestions", [])
+        if suggestions:
+            console.print(f"  Did you mean: {', '.join(suggestions[:5])}?")
+        return
+
+    # Format the result
+    lines: list[str] = []
+    name = result.get("name", query)
+    lines.append(f"[bold]{name}[/bold]")
+
+    match category:
+        case "monsters":
+            lines.append(f"  Type: {result.get('type', '?')} | CR: {result.get('cr', '?')} | XP: {result.get('xp', 0)}")
+            lines.append(f"  AC: {result.get('ac', '?')} | HP: {result.get('hp', '?')} | Speed: {result.get('speed', '?')} ft.")
+            abilities = result.get("abilities", {})
+            if abilities:
+                stats = "  ".join(f"{k}: {v}" for k, v in abilities.items())
+                lines.append(f"  {stats}")
+            if result.get("damage_resistances"):
+                lines.append(f"  Resistances: {', '.join(result['damage_resistances'])}")
+            if result.get("damage_immunities"):
+                lines.append(f"  Immunities: {', '.join(result['damage_immunities'])}")
+            actions = result.get("actions", [])
+            if actions:
+                lines.append("  [bold]Actions:[/bold]")
+                for a in actions:
+                    atk = f" (+{a['attack_bonus']})" if a.get("attack_bonus") else ""
+                    dmg = f" {a['damage_dice']} {a.get('damage_type', '')}" if a.get("damage_dice") else ""
+                    lines.append(f"    • {a['name']}{atk}{dmg}")
+            traits = result.get("special_traits", [])
+            if traits:
+                lines.append("  [bold]Traits:[/bold]")
+                for t in traits[:5]:
+                    lines.append(f"    • {t}")
+        case "spells":
+            lines.append(f"  Level: {'Cantrip' if result.get('level') == 0 else result.get('level', '?')} | {result.get('casting_time', '?')} | {result.get('resolution', '?')}")
+            if result.get("concentration"):
+                lines.append("  Concentration: Yes")
+            if result.get("damage_dice"):
+                lines.append(f"  Damage: {result['damage_dice']} {result.get('damage_type', '')}")
+            if result.get("healing_dice"):
+                lines.append(f"  Healing: {result['healing_dice']}")
+            if result.get("save_ability"):
+                lines.append(f"  Save: {result['save_ability']}")
+            if result.get("duration_rounds"):
+                lines.append(f"  Duration: {result['duration_rounds']} rounds")
+            if result.get("upcast_bonus"):
+                lines.append(f"  Upcast: {result['upcast_bonus']}")
+            desc = result.get("description", "")
+            if desc:
+                lines.append(f"  {desc[:300]}{'...' if len(desc) > 300 else ''}")
+        case "equipment":
+            eq_type = result.get("type", "item")
+            if eq_type == "weapon":
+                lines.append(f"  Weapon: {result.get('damage_dice', '?')} {result.get('damage_type', '')}")
+                if result.get("properties"):
+                    lines.append(f"  Properties: {', '.join(result['properties'])}")
+            elif eq_type == "armor":
+                lines.append(f"  Armor: AC {result.get('base_ac', '?')} ({result.get('armor_type', '?')})")
+                if result.get("stealth_disadvantage"):
+                    lines.append("  Stealth: Disadvantage")
+            else:
+                if result.get("category"):
+                    lines.append(f"  Category: {result['category']}")
+                if result.get("cost"):
+                    cost = result["cost"]
+                    lines.append(f"  Cost: {cost.get('quantity', '?')} {cost.get('unit', '')}")
+                if result.get("weight"):
+                    lines.append(f"  Weight: {result['weight']} lb.")
+                desc = result.get("description", "")
+                if desc:
+                    lines.append(f"  {desc[:200]}")
+        case "magic-items":
+            lines.append(f"  Type: {result.get('item_type', '?')} | Rarity: {result.get('rarity', '?')}")
+            if result.get("bonus"):
+                lines.append(f"  Bonus: +{result['bonus']}")
+            if result.get("requires_attunement"):
+                lines.append("  Requires Attunement: Yes")
+            desc = result.get("description", "")
+            if desc:
+                lines.append(f"  {desc[:400]}{'...' if len(desc) > 400 else ''}")
+        case _:
+            desc = result.get("description", "")
+            if desc:
+                lines.append(f"  {desc[:400]}{'...' if len(desc) > 400 else ''}")
+            data = result.get("data", {})
+            for key in ("level", "ability_score", "prerequisites", "class"):
+                if key in data:
+                    val = data[key]
+                    if isinstance(val, dict):
+                        val = val.get("name", str(val))
+                    lines.append(f"  {key.replace('_', ' ').title()}: {val}")
+
+    console.print(Panel("\n".join(lines), border_style="cyan", padding=(1, 2)))
+
+
 def _show_character_sheet(char_id: str, ctx: CommandContext) -> None:
     """Display a full character sheet for a player character."""
     try:
@@ -341,6 +510,8 @@ COMMANDS: dict[str, tuple] = {
     "location":  (_cmd_location,  "Describe current location (cached)"),
     "journal":   (_cmd_journal,   "Show world journal and NPC attitudes"),
     "recap":     (_cmd_recap,     "Narrative recap of the session"),
+    "compendium": (_cmd_compendium, "Search the SRD (monsters, spells, items, etc.)"),
+    "c":         (_cmd_compendium, "Search SRD (alias for /compendium)"),
 }
 
 
