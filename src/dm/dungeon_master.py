@@ -38,9 +38,9 @@ class DungeonMaster:
     ) -> str:
         """Process player input through the LLM loop, return narrative response.
 
-        If *on_text_chunk* is provided, the final narrative is streamed via the
-        callback (one chunk at a time).  Tool-calling iterations use regular
-        (non-streaming) complete.
+        If *on_text_chunk* is provided, the final narrative is delivered via the
+        callback.  All intermediate iterations (tool calls) use non-streaming
+        complete so that the LLM's internal reasoning is never shown to players.
         """
         self.context_manager.add_message({"role": "user", "content": player_input})
 
@@ -52,23 +52,20 @@ class DungeonMaster:
                 max_tokens=2048,
             )
 
-            # Peek with non-streaming complete to check for tool calls.
-            # If no callback requested, always use non-streaming.
-            if not on_text_chunk:
-                result = self.backend.complete(**api_kwargs)
-            else:
-                # Use streaming — the callback fires for text chunks.
-                # During tool-call iterations the text is typically empty so the
-                # callback is rarely invoked until the final narration.
-                result = self.backend.stream_complete(
-                    **api_kwargs, on_text_chunk=on_text_chunk,
-                )
+            # Always use non-streaming first. This prevents the LLM's
+            # intermediate reasoning (before tool calls) from leaking into
+            # the player-facing narration.
+            result = self.backend.complete(**api_kwargs)
 
             if not result.tool_calls:
                 self.context_manager.add_message(result.raw_assistant_message)
                 self.context_manager.compact_tool_pairs()
                 self.context_manager.compress_if_needed(self.backend)
-                return result.text or "[The DM pauses thoughtfully...]"
+                text = result.text or "[The DM pauses thoughtfully...]"
+                # Deliver final narration via callback for streaming display
+                if on_text_chunk and text:
+                    self._deliver_text(text, on_text_chunk)
+                return text
 
             # Tool-call turn — dispatch all calls, loop back for narration
             self.context_manager.add_message(result.raw_assistant_message)
@@ -85,6 +82,16 @@ class DungeonMaster:
 
             self.context_manager.add_message({"role": "user", "content": tool_results})
             # Loop: LLM processes results and either narrates or calls more tools
+
+    @staticmethod
+    def _deliver_text(
+        text: str,
+        callback: Callable[[str], None],
+        chunk_size: int = 12,
+    ) -> None:
+        """Deliver text to the streaming callback in small chunks."""
+        for i in range(0, len(text), chunk_size):
+            callback(text[i : i + chunk_size])
 
     def generate_session_recap(self) -> str:
         """Generate a narrative recap of significant session events."""

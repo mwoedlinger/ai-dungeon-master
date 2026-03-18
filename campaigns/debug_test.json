@@ -1,0 +1,337 @@
+{
+  "title": "The Testing Grounds",
+  "setting_overview": "A pocket dimension designed by an eccentric archmage as a proving ground. Each room tests a different skill. The walls shimmer with arcane energy and helpful signs mark each area. This is a debug/test campaign — every mechanic is testable within minutes.",
+  "starting_location_id": "hub",
+  "locations": {
+    "hub": {
+      "id": "hub",
+      "name": "The Nexus Hub",
+      "description": "A circular marble chamber with glowing runes on the floor. Five archways lead to different test chambers, each glowing a different color. A friendly golem stands in the center, ready to guide you. A signpost reads: 'Welcome to the Proving Grounds. Each chamber tests your abilities. Survive them all and claim your reward.'",
+      "connected_to": ["combat_easy", "combat_hard", "social_hall", "treasure_vault", "rest_camp"],
+      "treasure": [
+        {
+          "name": "Welcome Pouch",
+          "description": "A small velvet pouch containing 50 gold pieces, left by the archmage for visitors.",
+          "item_type": "mundane",
+          "rarity": "common",
+          "weight": 1.0,
+          "value_gp": 50,
+          "discovery": "Sitting on a pedestal near the signpost, plainly visible.",
+          "found": false
+        }
+      ]
+    },
+    "combat_easy": {
+      "id": "combat_easy",
+      "name": "The Skirmish Pit",
+      "description": "A sandy arena lit by floating torches. A rack of training weapons lines one wall. The air smells of ozone and old sweat. This chamber spawns low-CR creatures for combat practice. A brass plaque reads: 'Ring the bell to summon your foes.'",
+      "connected_to": ["hub", "combat_hard"],
+      "treasure": [
+        {
+          "name": "Potion of Healing",
+          "description": "A red potion that restores 2d4+2 hit points.",
+          "item_type": "potion",
+          "rarity": "common",
+          "weight": 0.5,
+          "value_gp": 50,
+          "discovery": "Hidden behind the weapon rack, DC 12 Investigation.",
+          "found": false
+        }
+      ]
+    },
+    "combat_hard": {
+      "id": "combat_hard",
+      "name": "The Crucible",
+      "description": "A dark stone chamber crackling with residual energy. Scorched claw marks cover the walls. This room summons deadlier foes — higher CR monsters that will push the party to their limits. A warning sign glows red: 'Danger. Rest before entering.'",
+      "connected_to": ["hub", "combat_easy"],
+      "treasure": [
+        {
+          "name": "Flame Tongue Longsword",
+          "description": "A longsword that bursts into flame on command, dealing an extra 2d6 fire damage on a hit. Requires attunement.",
+          "item_type": "weapon",
+          "rarity": "rare",
+          "bonus": 0,
+          "weight": 3.0,
+          "value_gp": 5000,
+          "requires_attunement": true,
+          "properties": {"extra_damage": "2d6 fire"},
+          "discovery": "Locked in a display case on the far wall. DC 15 Investigation to find the hidden latch, or DC 13 Strength to break the glass.",
+          "found": false
+        },
+        {
+          "name": "+1 Shield",
+          "description": "A gleaming shield that provides an additional +1 bonus to AC beyond the normal shield bonus.",
+          "item_type": "armor",
+          "rarity": "uncommon",
+          "bonus": 1,
+          "weight": 6.0,
+          "value_gp": 1500,
+          "requires_attunement": true,
+          "discovery": "Mounted on the wall among mundane shields. DC 14 Perception to notice the faint magical glow.",
+          "found": false
+        }
+      ]
+    },
+    "social_hall": {
+      "id": "social_hall",
+      "name": "The Diplomat's Parlor",
+      "description": "An elegant hall with velvet curtains, a crackling fireplace, and comfortable armchairs. Several NPCs sit at tables, each with a different personality and agenda. This room tests Persuasion, Intimidation, Deception, and Insight. A chalkboard lists available social encounters.",
+      "connected_to": ["hub", "merchant_corner"],
+      "treasure": []
+    },
+    "merchant_corner": {
+      "id": "merchant_corner",
+      "name": "Garrick's Emporium",
+      "description": "A cozy shop stuffed with adventuring gear, potions, scrolls, and curiosities. The merchant Garrick is eager to buy and sell. Prices are fair — this is a test environment, after all.",
+      "parent": "social_hall",
+      "connected_to": ["social_hall"],
+      "treasure": [
+        {
+          "name": "Cloak of Protection",
+          "description": "A fine cloak that grants +1 to AC and saving throws while attuned.",
+          "item_type": "wondrous",
+          "rarity": "uncommon",
+          "bonus": 1,
+          "weight": 1.0,
+          "value_gp": 3500,
+          "requires_attunement": true,
+          "discovery": "For sale on a mannequin behind the counter. Garrick will sell it for 500 gp or trade for a favor.",
+          "found": false
+        },
+        {
+          "name": "Bag of Holding",
+          "description": "This bag has an interior space considerably larger than its outside dimensions. It can hold up to 500 pounds.",
+          "item_type": "wondrous",
+          "rarity": "uncommon",
+          "weight": 15.0,
+          "value_gp": 4000,
+          "requires_attunement": false,
+          "discovery": "Hanging on a hook near the entrance. Garrick will sell it for 400 gp.",
+          "found": false
+        }
+      ]
+    },
+    "treasure_vault": {
+      "id": "treasure_vault",
+      "name": "The Archmage's Vault",
+      "description": "A reinforced chamber with trapped chests, locked doors, and hidden compartments. Every surface is covered in runes. This room tests Investigation, Perception, Thieves' Tools, and trap handling. The rewards are substantial for those who can find them.",
+      "connected_to": ["hub"],
+      "treasure": [
+        {
+          "name": "+2 Longbow",
+          "description": "An exquisitely crafted longbow that grants +2 to attack and damage rolls.",
+          "item_type": "weapon",
+          "rarity": "rare",
+          "bonus": 2,
+          "weight": 2.0,
+          "value_gp": 6000,
+          "requires_attunement": true,
+          "discovery": "Inside a trapped chest. DC 14 Perception to spot the poison needle trap, DC 13 Thieves' Tools to disarm, DC 15 to pick the lock.",
+          "found": false
+        },
+        {
+          "name": "Amulet of Health",
+          "description": "While attuned, your Constitution score becomes 19.",
+          "item_type": "wondrous",
+          "rarity": "rare",
+          "weight": 0.5,
+          "value_gp": 8000,
+          "requires_attunement": true,
+          "discovery": "Hidden behind a false wall panel. DC 16 Investigation to find.",
+          "found": false
+        },
+        {
+          "name": "Scroll of Fireball",
+          "description": "A spell scroll containing the Fireball spell (3rd level).",
+          "item_type": "scroll",
+          "rarity": "uncommon",
+          "weight": 0.1,
+          "value_gp": 200,
+          "discovery": "In a desk drawer. DC 10 Investigation.",
+          "found": false
+        },
+        {
+          "name": "200 Gold Coins",
+          "description": "A sack of gold coins stashed in the vault.",
+          "item_type": "mundane",
+          "rarity": "common",
+          "weight": 4.0,
+          "value_gp": 200,
+          "discovery": "Inside a stone box on a shelf. No check needed, but the box is heavy.",
+          "found": false
+        }
+      ]
+    },
+    "rest_camp": {
+      "id": "rest_camp",
+      "name": "The Hearthstone Camp",
+      "description": "A warm, safe room with bedrolls, a campfire, and a bubbling spring of clean water. Time flows differently here — short and long rests can be completed safely. A sundial on the wall tracks the campaign time. Perfect for testing rest mechanics, spell slot recovery, hit dice, and level-up features.",
+      "connected_to": ["hub"],
+      "treasure": [
+        {
+          "name": "Ring of Spell Storing",
+          "description": "This ring stores up to 5 levels worth of spells cast into it. Requires attunement.",
+          "item_type": "ring",
+          "rarity": "rare",
+          "weight": 0.1,
+          "value_gp": 24000,
+          "requires_attunement": true,
+          "discovery": "Half-buried in the dirt near the campfire. DC 13 Perception.",
+          "found": false
+        }
+      ]
+    }
+  },
+  "key_npcs": {
+    "guide_golem": {
+      "id": "guide_golem",
+      "name": "Cog",
+      "location": "hub",
+      "personality": "Helpful, literal-minded, and overly formal. Speaks in short declarative sentences. Refers to the party as 'honored test subjects.' Will explain any room's purpose if asked.",
+      "goals": "Guide visitors through the proving grounds and ensure they survive.",
+      "secret": "Cog secretly has feelings and wants to leave the proving grounds someday.",
+      "disposition": "friendly"
+    },
+    "hostile_npc": {
+      "id": "hostile_npc",
+      "name": "Vex the Trickster",
+      "location": "social_hall",
+      "personality": "Sarcastic, confrontational, and dismissive. Will insult the party and refuse to cooperate unless intimidated or outsmarted. Loves riddles and will offer a reward for solving one.",
+      "goals": "Amuse himself at the expense of adventurers.",
+      "secret": "Vex is actually a disguised imp bound to serve the archmage. He must answer truthfully if asked three direct questions.",
+      "disposition": "hostile"
+    },
+    "friendly_npc": {
+      "id": "friendly_npc",
+      "name": "Lira Sunveil",
+      "location": "social_hall",
+      "personality": "Warm, empathetic, and chatty. A retired cleric who now serves as a test evaluator. Will heal the party for free if asked nicely. Knows lore about each test room.",
+      "goals": "Help adventurers succeed and record their achievements.",
+      "secret": "Lira is dying of a curse and secretly hopes the party will notice and offer to help.",
+      "disposition": "friendly"
+    },
+    "merchant": {
+      "id": "merchant",
+      "name": "Garrick Coinweaver",
+      "location": "merchant_corner",
+      "personality": "Shrewd but fair. Speaks fast, always counting coins. Will haggle enthusiastically. Offers discounts for good stories. Sells potions, basic gear, and a few magic items.",
+      "goals": "Make a profit while keeping adventurers well-supplied.",
+      "secret": "Garrick is the archmage's nephew, placed here to learn humility through honest trade.",
+      "disposition": "neutral"
+    }
+  },
+  "factions": [
+    {
+      "id": "proving_ground_staff",
+      "name": "Proving Ground Staff",
+      "description": "The golem, NPCs, and magical constructs that maintain the testing chambers.",
+      "goals": "Keep the proving grounds operational and test worthy adventurers.",
+      "allies": [],
+      "enemies": []
+    }
+  ],
+  "plot_hooks": [
+    {
+      "id": "clear_the_pits",
+      "title": "Trial by Combat",
+      "description": "Defeat the creatures in the Skirmish Pit to prove your combat prowess.",
+      "trigger_location": "combat_easy",
+      "connected_npcs": ["guide_golem"],
+      "rewards": {
+        "xp": 500,
+        "gold": 100,
+        "items": ["Potion of Healing"]
+      }
+    },
+    {
+      "id": "crucible_challenge",
+      "title": "Crucible of Fire",
+      "description": "Survive the deadly encounter in the Crucible. Only the strongest emerge victorious.",
+      "trigger_location": "combat_hard",
+      "connected_npcs": ["guide_golem"],
+      "rewards": {
+        "xp": 1500,
+        "gold": 300,
+        "items": []
+      }
+    },
+    {
+      "id": "diplomats_trial",
+      "title": "The Diplomat's Trial",
+      "description": "Navigate the social challenges in the Parlor. Persuade Lira, outwit Vex, and strike a deal with Garrick.",
+      "trigger_location": "social_hall",
+      "connected_npcs": ["hostile_npc", "friendly_npc", "merchant"],
+      "rewards": {
+        "xp": 400,
+        "gold": 150,
+        "items": []
+      }
+    },
+    {
+      "id": "vault_heist",
+      "title": "Crack the Vault",
+      "description": "Find all the hidden treasure in the Archmage's Vault. Every item found counts toward completion.",
+      "trigger_location": "treasure_vault",
+      "connected_npcs": [],
+      "rewards": {
+        "xp": 600,
+        "gold": 200,
+        "items": []
+      }
+    },
+    {
+      "id": "liras_curse",
+      "title": "Lira's Hidden Curse",
+      "description": "Discover Lira's secret curse and find a way to break it. Requires Insight DC 14 to notice, Medicine DC 15 or Remove Curse to treat.",
+      "trigger_location": "social_hall",
+      "connected_npcs": ["friendly_npc"],
+      "rewards": {
+        "xp": 800,
+        "gold": 0,
+        "items": ["Periapt of Wound Closure"]
+      }
+    }
+  ],
+  "encounter_tables": {
+    "combat_easy": [
+      {
+        "description": "A pack of goblins bursts from trapdoors in the floor.",
+        "monster_ids": ["goblin", "goblin", "goblin"],
+        "difficulty": "easy",
+        "trigger": "bell_ring"
+      },
+      {
+        "description": "A wolf and two giant rats emerge from cages along the wall.",
+        "monster_ids": ["wolf", "giant-rat", "giant-rat"],
+        "difficulty": "easy",
+        "trigger": "bell_ring"
+      },
+      {
+        "description": "A skeleton wielding a rusty sword shambles forward.",
+        "monster_ids": ["skeleton", "skeleton"],
+        "difficulty": "medium",
+        "trigger": "bell_ring"
+      }
+    ],
+    "combat_hard": [
+      {
+        "description": "An owlbear charges from the shadows, roaring with fury.",
+        "monster_ids": ["owlbear"],
+        "difficulty": "hard",
+        "trigger": "enter"
+      },
+      {
+        "description": "A wight rises from a stone sarcophagus, eyes burning with cold malice.",
+        "monster_ids": ["wight"],
+        "difficulty": "hard",
+        "trigger": "enter"
+      },
+      {
+        "description": "A young green dragon descends from a ledge above — the ultimate test.",
+        "monster_ids": ["young-green-dragon"],
+        "difficulty": "deadly",
+        "trigger": "challenge"
+      }
+    ]
+  }
+}

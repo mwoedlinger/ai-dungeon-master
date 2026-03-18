@@ -1,0 +1,157 @@
+{
+  "characters": [
+    {
+      "id": "kael",
+      "name": "Kael Ironfist",
+      "race": "Human",
+      "class_name": "Fighter",
+      "subclass": "Champion",
+      "level": 3,
+      "xp": 850,
+      "background": "Soldier",
+      "alignment": "Lawful Good",
+      "personality_traits": "I face problems head-on. A simple, direct solution is the best path to success.",
+      "ideals": "Greater Good. Our lot is to lay down our lives in defense of others.",
+      "bonds": "I fight for those who cannot fight for themselves.",
+      "flaws": "I have little respect for anyone who is not a proven warrior.",
+      "ability_scores": {
+        "STR": 16,
+        "DEX": 14,
+        "CON": 14,
+        "INT": 10,
+        "WIS": 12,
+        "CHA": 8
+      },
+      "hp": 28,
+      "max_hp": 28,
+      "temp_hp": 0,
+      "ac": 18,
+      "speed": 30,
+      "proficiency_bonus": 2,
+      "skill_proficiencies": ["Athletics", "Perception", "Intimidation", "Survival"],
+      "weapon_proficiencies": ["simple", "martial"],
+      "armor_proficiencies": ["light", "medium", "heavy", "shields"],
+      "saving_throw_proficiencies": ["STR", "CON"],
+      "spell_slots": {},
+      "max_spell_slots": {},
+      "spellcasting_ability": null,
+      "known_spells": [],
+      "hit_dice_remaining": 3,
+      "hit_die_type": "d10",
+      "class_resources": {
+        "Second Wind": 1,
+        "Action Surge": 1
+      },
+      "weapons": [
+        {
+          "name": "Longsword",
+          "damage_dice": "1d8",
+          "damage_type": "slashing",
+          "properties": ["versatile"],
+          "range_normal": null,
+          "range_long": null,
+          "attack_bonus_override": null
+        },
+        {
+          "name": "Handaxe",
+          "damage_dice": "1d6",
+          "damage_type": "slashing",
+          "properties": ["light", "thrown"],
+          "range_normal": 20,
+          "range_long": 60,
+          "attack_bonus_override": null
+        }
+      ],
+      "armor": {
+        "name": "Chain Mail",
+        "base_ac": 16,
+        "armor_type": "heavy",
+        "stealth_disadvantage": true,
+        "strength_requirement": 13
+      },
+      "shield": true,
+      "inventory": [
+        {"name": "Rope (50 ft)", "quantity": 1, "weight": 10.0},
+        {"name": "Torch", "quantity": 3, "weight": 1.0},
+        {"name": "Rations", "quantity": 5, "weight": 2.0}
+      ],
+      "gold": 25,
+      "conditions": [],
+      "is_player": true
+    },
+    {
+      "id": "elara",
+      "name": "Elara Brightweave",
+      "race": "Half-Elf",
+      "class_name": "Wizard",
+      "subclass": "School of Evocation",
+      "level": 3,
+      "xp": 850,
+      "background": "Sage",
+      "alignment": "Neutral Good",
+      "personality_traits": "I use polysyllabic words to convey the impression of great erudition. I'm used to helping those who aren't as smart as I am.",
+      "ideals": "Knowledge. The path to power and self-improvement is through knowledge.",
+      "bonds": "I have an ancient text that holds terrible secrets about the nature of magic.",
+      "flaws": "I overlook obvious solutions in favor of complicated ones.",
+      "ability_scores": {
+        "STR": 8,
+        "DEX": 14,
+        "CON": 13,
+        "INT": 16,
+        "WIS": 12,
+        "CHA": 10
+      },
+      "hp": 20,
+      "max_hp": 20,
+      "temp_hp": 0,
+      "ac": 12,
+      "speed": 30,
+      "proficiency_bonus": 2,
+      "skill_proficiencies": ["Arcana", "History", "Investigation", "Insight"],
+      "weapon_proficiencies": ["daggers", "darts", "slings", "quarterstaffs", "light crossbows"],
+      "armor_proficiencies": [],
+      "saving_throw_proficiencies": ["INT", "WIS"],
+      "spell_slots": {"1": 4, "2": 2},
+      "max_spell_slots": {"1": 4, "2": 2},
+      "spellcasting_ability": "INT",
+      "known_spells": [
+        "Fire Bolt",
+        "Ray of Frost",
+        "Mage Hand",
+        "Magic Missile",
+        "Shield",
+        "Mage Armor",
+        "Thunderwave",
+        "Scorching Ray",
+        "Misty Step"
+      ],
+      "hit_dice_remaining": 3,
+      "hit_die_type": "d6",
+      "class_resources": {
+        "Arcane Recovery": 1
+      },
+      "weapons": [
+        {
+          "name": "Quarterstaff",
+          "damage_dice": "1d6",
+          "damage_type": "bludgeoning",
+          "properties": ["versatile"],
+          "range_normal": null,
+          "range_long": null,
+          "attack_bonus_override": null
+        }
+      ],
+      "armor": null,
+      "shield": false,
+      "inventory": [
+        {"name": "Spellbook", "quantity": 1, "weight": 3.0},
+        {"name": "Component Pouch", "quantity": 1, "weight": 2.0},
+        {"name": "Ink and Quill", "quantity": 1, "weight": 0.1},
+        {"name": "Scroll Case", "quantity": 1, "weight": 1.0}
+      ],
+      "gold": 30,
+      "conditions": [],
+      "is_player": true
+    }
+  ]
+}
