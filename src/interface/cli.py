@@ -1,21 +1,67 @@
-"""Rich-based terminal UI."""
+"""Rich-based terminal UI with themed styling."""
 from __future__ import annotations
 
 import os
 import sys
 from typing import TYPE_CHECKING
 
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
+from rich.rule import Rule
+from rich.table import Table
 from rich.text import Text
-from rich import box
+from rich.theme import Theme
 
 if TYPE_CHECKING:
     from src.engine.game_state import GameState
     from src.log.event_log import EventEntry
 
-console = Console()
 
+# ---------------------------------------------------------------------------
+# Theme — semantic color palette
+# ---------------------------------------------------------------------------
+
+DND_THEME = Theme({
+    # Narrative & chrome
+    "narration.border":  "cyan",
+    "narration.title":   "bold cyan",
+    "combat.border":     "bold red",
+
+    # Mechanical output (dimmed relative to narrative)
+    "mechanical":        "dim",
+    "dice.expr":         "yellow",
+    "dice.total":        "bold white",
+    "dice.crit":         "bold magenta",
+
+    # HP
+    "hp.full":           "green",
+    "hp.half":           "yellow",
+    "hp.critical":       "bold red",
+
+    # Combat results
+    "hit":               "bold green",
+    "miss":              "bold red",
+    "damage":            "bold red",
+    "healing":           "bold green",
+
+    # Status
+    "condition":         "bold yellow",
+    "slot.available":    "bright_blue",
+    "slot.spent":        "dim",
+
+    # Separators & transitions
+    "separator":         "dim cyan",
+    "transition":        "bold bright_cyan",
+    "header":            "bold green",
+})
+
+console = Console(theme=DND_THEME)
+
+
+# ---------------------------------------------------------------------------
+# Screen utilities
+# ---------------------------------------------------------------------------
 
 def clear_screen() -> None:
     """Clear the terminal."""
@@ -24,54 +70,109 @@ def clear_screen() -> None:
 
 def display_header() -> None:
     """Display the game header after clearing."""
-    console.print("[bold green]═══ AI Dungeon Master ═══[/bold green]")
+    console.print("[header]═══ AI Dungeon Master ═══[/header]")
     console.print("[dim]Type /help for commands[/dim]\n")
 
 
+def display_turn_separator(name: str, *, is_player: bool) -> None:
+    """Print a Rule-based separator for a combatant's turn."""
+    style = "bold cyan" if is_player else "bold red"
+    console.print()
+    console.print(Rule(f"{name}'s Turn", style=style, characters="─"))
+    console.print()
+
+
+def display_location_transition(location_name: str) -> None:
+    """Show a banner when the party moves to a new location."""
+    console.print()
+    console.print(
+        Panel(
+            f"[transition]Entering: {location_name}[/transition]",
+            box=box.DOUBLE,
+            border_style="transition",
+            padding=(0, 4),
+            expand=False,
+        ),
+        justify="center",
+    )
+    console.print()
+
+
+# ---------------------------------------------------------------------------
+# Narrative streaming
+# ---------------------------------------------------------------------------
+
 class NarrativeStreamer:
-    """Streams narrative text inside a bordered panel with word-wrapping."""
+    """Streams narrative text inside a bordered panel with word-wrapping.
+
+    Uses manual ANSI rendering for smooth token-by-token streaming.
+    The border style adapts to narration (DOUBLE) or combat (HEAVY).
+    """
 
     _CYAN = "\033[36m"
-    _RESET = "\033[0m"
+    _RED = "\033[31m"
     _BOLD_CYAN = "\033[1;36m"
-    # "  │  " — 2 indent + border + 2 padding = 5 visible chars
-    _LINE_PREFIX = f"  {_CYAN}\u2502{_RESET}  "
-    _MARGIN = 5  # visible character width of the prefix
+    _BOLD_RED = "\033[1;31m"
+    _RESET = "\033[0m"
+    _MARGIN = 5  # "  │  " — 2 indent + border + 2 padding
 
-    def __init__(self, location_name: str = "") -> None:
+    def __init__(self, location_name: str = "", combat: bool = False) -> None:
         self._location_name = location_name
+        self._combat = combat
         self._started = False
-        self._col = 0  # current column position on the line
-        self._max_col = 0  # computed in start()
-        self._word_buf: list[str] = []  # buffer for current word
+        self._col = 0
+        self._max_col = 0
+        self._word_buf: list[str] = []
+
+        if combat:
+            self._color = self._RED
+            self._bold_color = self._BOLD_RED
+            # Heavy box chars: ┏━┓ ┃ ┗━┛
+            self._tl, self._tr = "\u250f", "\u2513"
+            self._bl, self._br = "\u2517", "\u251b"
+            self._horiz = "\u2501"
+            self._vert = "\u2503"
+        else:
+            self._color = self._CYAN
+            self._bold_color = self._BOLD_CYAN
+            # Double box chars: ╔═╗ ║ ╚═╝
+            self._tl, self._tr = "\u2554", "\u2557"
+            self._bl, self._br = "\u255a", "\u255d"
+            self._horiz = "\u2550"
+            self._vert = "\u2551"
+
+        self._line_prefix = f"  {self._color}{self._vert}{self._RESET}  "
 
     def start(self) -> None:
         """Print the top border of the narrative panel."""
         w = console.width - 4
-        self._max_col = console.width - self._MARGIN - 1  # leave 1 char margin
+        self._max_col = console.width - self._MARGIN - 1
         if self._location_name:
             label = f" {self._location_name} "
             fill = max(0, w - len(label) - 2)
-            sys.stdout.write(f"  {self._CYAN}\u256d\u2500{self._BOLD_CYAN}{label}{self._CYAN}{'─' * fill}\u256e{self._RESET}\n")
+            sys.stdout.write(
+                f"  {self._color}{self._tl}{self._horiz}"
+                f"{self._bold_color}{label}"
+                f"{self._color}{self._horiz * fill}{self._tr}{self._RESET}\n"
+            )
         else:
-            sys.stdout.write(f"  {self._CYAN}\u256d{'─' * w}\u256e{self._RESET}\n")
-        sys.stdout.write(f"{self._LINE_PREFIX}\n{self._LINE_PREFIX}")
+            sys.stdout.write(
+                f"  {self._color}{self._tl}{self._horiz * w}{self._tr}{self._RESET}\n"
+            )
+        sys.stdout.write(f"{self._line_prefix}\n{self._line_prefix}")
         sys.stdout.flush()
         self._started = True
         self._col = 0
 
     def _newline(self) -> None:
-        """Write a line break with the border prefix."""
-        sys.stdout.write(f"\n{self._LINE_PREFIX}")
+        sys.stdout.write(f"\n{self._line_prefix}")
         self._col = 0
 
     def _flush_word(self) -> None:
-        """Flush the buffered word, wrapping to next line if needed."""
         if not self._word_buf:
             return
         word = "".join(self._word_buf)
         self._word_buf.clear()
-        # If the word would overflow, wrap first (unless we're at line start)
         if self._col > 0 and self._col + len(word) > self._max_col:
             self._newline()
         sys.stdout.write(word)
@@ -87,7 +188,6 @@ class NarrativeStreamer:
                 self._newline()
             elif char == " ":
                 self._flush_word()
-                # Write the space if it fits, otherwise it becomes the wrap point
                 if self._col < self._max_col:
                     sys.stdout.write(" ")
                     self._col += 1
@@ -95,7 +195,7 @@ class NarrativeStreamer:
                     self._newline()
             else:
                 self._word_buf.append(char)
-        # Flush partial word so text appears immediately during streaming
+        # Flush partial word for responsive streaming
         if self._word_buf:
             word = "".join(self._word_buf)
             if self._col > 0 and self._col + len(word) > self._max_col:
@@ -110,118 +210,252 @@ class NarrativeStreamer:
         if self._started:
             self._flush_word()
             w = console.width - 4
-            sys.stdout.write(f"\n{self._LINE_PREFIX}\n  {self._CYAN}\u2570{'─' * w}\u256f{self._RESET}\n")
+            sys.stdout.write(
+                f"\n{self._line_prefix}\n"
+                f"  {self._color}{self._bl}{self._horiz * w}{self._br}{self._RESET}\n"
+            )
             sys.stdout.flush()
             self._started = False
 
 
-def display_narrative(text: str, location_name: str = "") -> None:
+def display_narrative(text: str, location_name: str = "", combat: bool = False) -> None:
     """Display narrative prose in a styled panel (non-streamed fallback)."""
-    title = f"[bold cyan]{location_name}[/bold cyan]" if location_name else ""
-    console.print(Panel(text, title=title, border_style="cyan", padding=(1, 2)))
+    if combat:
+        title = f"[combat.border]{location_name}[/combat.border]" if location_name else ""
+        console.print(Panel(text, title=title, box=box.HEAVY, border_style="combat.border", padding=(1, 2)))
+    else:
+        title = f"[narration.title]{location_name}[/narration.title]" if location_name else ""
+        console.print(Panel(text, title=title, box=box.DOUBLE, border_style="narration.border", padding=(1, 2)))
 
+
+# ---------------------------------------------------------------------------
+# HP bar helper
+# ---------------------------------------------------------------------------
+
+def _hp_bar(hp: int, max_hp: int, width: int = 10) -> str:
+    """Return a colored HP bar string like '████░░░░ 18/25'."""
+    ratio = max(0, min(hp / max_hp, 1.0)) if max_hp > 0 else 0
+    filled = round(ratio * width)
+    empty = width - filled
+    if ratio > 0.5:
+        color = "hp.full"
+    elif ratio > 0:
+        color = "hp.half"
+    else:
+        color = "hp.critical"
+    bar = "█" * filled + "░" * empty
+    return f"[{color}]{bar} {hp}/{max_hp}[/{color}]"
+
+
+def _hp_color(hp: int, max_hp: int) -> str:
+    """Return the semantic HP color name."""
+    if hp > max_hp // 2:
+        return "hp.full"
+    return "hp.half" if hp > 0 else "hp.critical"
+
+
+# ---------------------------------------------------------------------------
+# Dice rolls — compact vs expanded
+# ---------------------------------------------------------------------------
 
 def display_dice_roll(entry: "EventEntry") -> None:
-    """Display a dice roll result as a compact callout box."""
+    """Display a dice roll result: compact for routine, expanded for crits."""
     tool = entry.tool_name
     inputs = entry.inputs
     result = entry.result
 
     if tool == "roll_dice":
-        expr = inputs.get("dice_expr", "?")
-        reason = inputs.get("reason", "")
-        rolls = result.get("rolls", [])
-        total = result.get("total", "?")
-        mod = result.get("modifier", 0)
-        roll_str = "+".join(str(r) for r in rolls)
-        mod_str = f"{mod:+d}" if mod else ""
-        line = f"[yellow]{expr}[/yellow] \u2192 [{roll_str}]{mod_str} = [bold]{total}[/bold]"
-        if reason:
-            line = f"[dim]{reason}:[/dim] " + line
-        console.print(f"  \u250c {line}")
-
+        _display_roll_dice(inputs, result)
     elif tool == "attack":
-        attacker = result.get("attacker", inputs.get("attacker_id", "?"))
-        target = result.get("target", inputs.get("target_id", "?"))
-        rolls = result.get("roll", [])
-        bonus = result.get("attack_bonus", 0)
-        total = result.get("total_attack", "?")
-        ac = result.get("target_ac", "?")
-        hits = result.get("hits", False)
-        is_crit = result.get("is_crit", False)
-        damage = result.get("damage")
+        _display_attack(inputs, result)
+    elif tool == "cast_spell":
+        _display_cast_spell(inputs, result)
+    elif tool == "ability_check":
+        _display_ability_check(inputs, result)
+    elif tool == "saving_throw":
+        _display_saving_throw(inputs, result)
 
-        hit_str = "[bold green]\u2713 HIT[/bold green]" if hits else "[bold red]\u2717 MISS[/bold red]"
-        if is_crit:
-            hit_str = "[bold magenta]\u2605 CRITICAL HIT[/bold magenta]"
-        roll_display = "+".join(str(r) for r in (rolls if isinstance(rolls, list) else [rolls]))
-        line = f"[yellow]1d20+{bonus}[/yellow] \u2192 [{roll_display}]+{bonus} = [bold]{total}[/bold] vs AC {ac} {hit_str}"
-        console.print(f"  \u250c Attack Roll \u2500\u2500")
-        console.print(f"  \u2502 {line}")
+
+def _display_roll_dice(inputs: dict, result: dict) -> None:
+    expr = inputs.get("dice_expr", "?")
+    reason = inputs.get("reason", "")
+    rolls = result.get("rolls", [])
+    total = result.get("total", "?")
+    mod = result.get("modifier", 0)
+    roll_str = "+".join(str(r) for r in rolls)
+    mod_str = f"{mod:+d}" if mod else ""
+
+    label = f"[dim]{reason}:[/dim] " if reason else ""
+    console.print(
+        f"  [dim]⊡[/dim] {label}[dice.expr]{expr}[/dice.expr] → "
+        f"[{roll_str}]{mod_str} = [dice.total]{total}[/dice.total]"
+    )
+
+
+def _display_attack(inputs: dict, result: dict) -> None:
+    attacker = result.get("attacker", inputs.get("attacker_id", "?"))
+    target = result.get("target", inputs.get("target_id", "?"))
+    rolls = result.get("roll", [])
+    bonus = result.get("attack_bonus", 0)
+    total = result.get("total_attack", "?")
+    ac = result.get("target_ac", "?")
+    hits = result.get("hits", False)
+    is_crit = result.get("is_crit", False)
+    damage = result.get("damage")
+
+    roll_display = "+".join(str(r) for r in (rolls if isinstance(rolls, list) else [rolls]))
+
+    if is_crit:
+        # Expanded — critical hit
+        hit_str = "[dice.crit]★ CRITICAL HIT[/dice.crit]"
+        console.print(f"  ┌ [dim]Attack Roll[/dim] ──")
+        console.print(
+            f"  │ [dice.expr]1d20+{bonus}[/dice.expr] → [{roll_display}]+{bonus}"
+            f" = [dice.total]{total}[/dice.total] vs AC {ac} {hit_str}"
+        )
         if damage is not None:
             dmg_type = result.get("damage_type", "")
             hp_left = result.get("hp_remaining", "?")
-            console.print(f"  \u2502 Damage: [bold red]{damage}[/bold red] {dmg_type} | {target} \u2192 {hp_left} HP")
-        console.print("  \u2514\u2500\u2500")
+            console.print(f"  │ Damage: [damage]{damage}[/damage] {dmg_type} | {target} → {hp_left} HP")
+        console.print("  └──")
+    else:
+        # Compact — routine attack
+        hit_str = "[hit]✓[/hit]" if hits else "[miss]✗[/miss]"
+        dmg_part = ""
+        if damage is not None:
+            dmg_type = result.get("damage_type", "")
+            hp_left = result.get("hp_remaining", "?")
+            dmg_part = f" | [damage]{damage}[/damage] {dmg_type} → {hp_left} HP"
+        console.print(
+            f"  [dim]⚔[/dim] {attacker} → {target}: "
+            f"[dice.expr]1d20+{bonus}[/dice.expr] = [dice.total]{total}[/dice.total]"
+            f" vs AC {ac} {hit_str}{dmg_part}"
+        )
 
-    elif tool in ("cast_spell",):
-        spell = result.get("spell", inputs.get("spell_name", "?"))
-        if result.get("success"):
-            targets_info = result.get("targets", [])
-            console.print(f"  \u250c [magenta]{spell}[/magenta]")
-            for t in targets_info:
-                if "damage" in t:
-                    console.print(f"  \u2502 {t['target']}: {t.get('damage', 0)} dmg | {t.get('hp_remaining', '?')} HP remaining")
-                elif "healed" in result:
-                    console.print(f"  \u2502 Healed: {result['healed']} HP")
-            console.print("  \u2514\u2500\u2500")
 
+def _display_cast_spell(inputs: dict, result: dict) -> None:
+    spell = result.get("spell", inputs.get("spell_name", "?"))
+    if not result.get("success"):
+        console.print(f"  [dim]✦[/dim] [magenta]{spell}[/magenta] — [miss]failed[/miss]")
+        return
+    console.print(f"  ┌ [magenta]{spell}[/magenta]")
+    for t in result.get("targets", []):
+        if "damage" in t:
+            console.print(
+                f"  │ {t['target']}: [damage]{t.get('damage', 0)}[/damage] dmg"
+                f" | {t.get('hp_remaining', '?')} HP remaining"
+            )
+    if "healed" in result:
+        console.print(f"  │ Healed: [healing]{result['healed']}[/healing] HP")
+    console.print("  └──")
+
+
+def _display_ability_check(inputs: dict, result: dict) -> None:
+    skill = inputs.get("skill", inputs.get("ability", "?"))
+    char = inputs.get("character_id", "?")
+    total = result.get("total", "?")
+    dc = result.get("dc", "?")
+    success = result.get("success")
+
+    mark = "[hit]✓[/hit]" if success else "[miss]✗[/miss]"
+    console.print(
+        f"  [dim]⊡[/dim] {char} {skill} check: "
+        f"[dice.total]{total}[/dice.total] vs DC {dc} {mark}"
+    )
+
+
+def _display_saving_throw(inputs: dict, result: dict) -> None:
+    ability = inputs.get("ability", "?")
+    char = inputs.get("character_id", "?")
+    total = result.get("total", "?")
+    dc = result.get("dc", "?")
+    success = result.get("success")
+
+    mark = "[hit]✓[/hit]" if success else "[miss]✗[/miss]"
+    console.print(
+        f"  [dim]⊡[/dim] {char} {ability} save: "
+        f"[dice.total]{total}[/dice.total] vs DC {dc} {mark}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Status bar — table with HP bars and slot pips
+# ---------------------------------------------------------------------------
 
 def display_status_bar(game_state: "GameState") -> None:
-    """Compact HP/slots footer for all player characters."""
-    parts = []
+    """Render a multi-column status bar with HP bars and spell slot pips."""
+    table = Table(box=None, show_header=False, padding=(0, 2), expand=True)
+    for _ in game_state.player_characters:
+        table.add_column(justify="center")
+
+    name_row: list[str] = []
+    hp_row: list[str] = []
+    detail_row: list[str] = []
+
     for char in game_state.player_characters:
-        hp_color = "green" if char.hp > char.max_hp // 2 else ("yellow" if char.hp > 0 else "red")
-        hp_str = f"[{hp_color}]{char.hp}/{char.max_hp} HP[/{hp_color}]"
-        slot_str = ""
-        if char.spell_slots:
-            slot_str = " | Slots: " + " ".join(
-                f"L{k}:{v}" for k, v in sorted(char.spell_slots.items()) if v > 0
-            )
-        cond_str = ""
+        name_row.append(f"[bold]{char.name}[/bold]")
+        hp_row.append(f"{_hp_bar(char.hp, char.max_hp)}  AC {char.ac}")
+
+        parts: list[str] = []
+        # Spell slot pips
+        if char.spell_slots and char.max_spell_slots:
+            for lvl in sorted(char.max_spell_slots):
+                total = char.max_spell_slots[lvl]
+                remaining = char.spell_slots.get(lvl, 0)
+                pips = (
+                    "[slot.available]●[/slot.available]" * remaining
+                    + "[slot.spent]○[/slot.spent]" * (total - remaining)
+                )
+                parts.append(f"L{lvl}:{pips}")
+        # Conditions
         if char.conditions:
-            cond_str = f" [{', '.join(char.conditions)}]"
-        parts.append(f"[bold]{char.name}[/bold] AC {char.ac} {hp_str}{slot_str}{cond_str}")
+            conds = " ".join(f"[condition]{c}[/condition]" for c in char.conditions)
+            parts.append(conds)
+        detail_row.append("  ".join(parts) if parts else "")
 
-    console.print(Panel(" | ".join(parts), border_style="dim", padding=(0, 1)))
+    table.add_row(*name_row)
+    table.add_row(*hp_row)
+    if any(detail_row):
+        table.add_row(*detail_row)
 
+    console.print(Panel(table, border_style="dim", padding=(0, 1)))
+
+
+# ---------------------------------------------------------------------------
+# Combat initiative tracker — horizontal timeline
+# ---------------------------------------------------------------------------
 
 def display_combat_state(game_state: "GameState") -> None:
-    """Show initiative order with HP during combat."""
+    """Show initiative order as a horizontal timeline with HP bars."""
     combat = game_state.combat
     if not combat.active:
         return
 
-    lines = [f"[bold red]COMBAT \u2014 Round {combat.round}[/bold red]", ""]
+    # Round header
+    console.print(Rule(f"⚔ Round {combat.round}", style="combat.border", characters="─"))
+
+    # Build timeline segments
+    segments: list[str] = []
     for i, cid in enumerate(combat.turn_order):
         try:
             char = game_state.get_character(cid)
         except KeyError:
             continue
         c = combat.combatants[cid]
-        # Skip dead combatants from the display
         if char.hp <= 0 or "dead" in char.conditions:
             continue
-        marker = "[bold cyan]\u2192[/bold cyan] " if i == combat.current_turn_index else "  "
-        actions = []
-        if c.has_action:
-            actions.append("A")
-        if c.has_bonus_action:
-            actions.append("B")
-        hp_color = "green" if char.hp > char.max_hp // 2 else ("yellow" if char.hp > 0 else "red")
-        hp_str = f"[{hp_color}]{char.hp}/{char.max_hp}[/{hp_color}]"
-        cond_str = f" [{', '.join(char.conditions)}]" if char.conditions else ""
-        action_str = f"[{'/'.join(actions)}]" if actions else "[spent]"
-        lines.append(f"{marker}[bold]{char.name}[/bold] (Init {c.initiative:+d}) {hp_str} HP {action_str}{cond_str}")
 
-    console.print(Panel("\n".join(lines), border_style="red", padding=(0, 1)))
+        hp_bar = _hp_bar(char.hp, char.max_hp, width=6)
+        is_active = i == combat.current_turn_index
+        cond_str = f" [condition]{','.join(char.conditions)}[/condition]" if char.conditions else ""
+
+        if is_active:
+            entry = f"[bold]▶ {char.name}[/bold]({c.initiative:+d}) {hp_bar}{cond_str}"
+        else:
+            name_style = "cyan" if char.is_player else "red"
+            entry = f"[{name_style}]{char.name}[/{name_style}]({c.initiative:+d}) {hp_bar}{cond_str}"
+
+        segments.append(entry)
+
+    timeline = "  →  ".join(segments)
+    console.print(Panel(timeline, border_style="combat.border", padding=(0, 1)))

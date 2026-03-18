@@ -9,7 +9,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel
 
-from src.models.world import Location
+from src.models.world import Location, QuestReward
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +41,7 @@ class PlotHook(BaseModel):
     description: str
     trigger_location: str | None = None
     connected_npcs: list[str] = []
+    rewards: QuestReward | None = None
 
 
 class EncounterTemplate(BaseModel):

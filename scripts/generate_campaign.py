@@ -160,7 +160,19 @@ Output a JSON object:
       "connected_to": ["<other location_ids>"],
       "narrative_role": "introduction|investigation|revelation|confrontation|sanctuary|crossroads|threshold",
       "atmosphere": "1-2 sentence sensory snapshot",
-      "hidden_detail": "Something not immediately obvious that rewards investigation"
+      "hidden_detail": "Something not immediately obvious that rewards investigation",
+      "treasure": [
+        {{
+          "name": "<item name, e.g. 'Flame Tongue Longsword'>",
+          "description": "<brief description>",
+          "item_type": "mundane|weapon|armor|potion|scroll|wondrous|ring|staff",
+          "rarity": "common|uncommon|rare|very_rare|legendary",
+          "bonus": 0,
+          "value_gp": 50,
+          "requires_attunement": false,
+          "discovery": "<how to find it: 'DC 15 Investigation behind the altar', 'visible in an unlocked chest', 'dropped by the boss'>"
+        }}
+      ]
     }}
   }}
 }}
@@ -171,6 +183,9 @@ RULES:
 - The starting location should feel like a natural arrival point.
 - Include at least one location that feels safe and at least one that feels deeply wrong.
 - Location IDs must be lowercase_snake_case.
+- Not every location needs treasure. Safe/social locations can have 0-1 mundane items. Dangerous locations should have 1-3 items proportional to risk.
+- Place at least one uncommon or rare magic item across all locations. Legendary items should be extremely scarce (0-1 per campaign).
+- Weapon/armor bonuses: uncommon = +1, rare = +2, very_rare = +3. Wondrous items use bonus=0 with special properties.
 - Output ONLY valid JSON."""
 
 
@@ -249,7 +264,8 @@ Output a JSON object:
       "connected_npcs": ["<npc_ids involved>"],
       "actual_situation": "What's really going on (DM eyes only)",
       "connects_to": ["<other plot hook IDs this feeds into>"],
-      "clue_locations": ["<location_ids where evidence can be found>"]
+      "clue_locations": ["<location_ids where evidence can be found>"],
+      "rewards": {{"xp": 100, "gold": 50, "items": ["<item name>"]}}
     }}
   ],
   "revelation_sequence": [
@@ -703,12 +719,28 @@ class CampaignGenerator:
         # Clean locations — strip extra fields not in CampaignData schema
         clean_locations = {}
         for lid, loc in locations_data.get("locations", {}).items():
-            clean_locations[lid] = {
+            loc_data: dict = {
                 "id": lid,
                 "name": loc.get("name", lid),
                 "description": loc.get("description", ""),
                 "connected_to": loc.get("connected_to", []),
             }
+            if loc.get("treasure"):
+                loc_data["treasure"] = [
+                    {
+                        "name": t.get("name", ""),
+                        "description": t.get("description", ""),
+                        "item_type": t.get("item_type", "mundane"),
+                        "rarity": t.get("rarity", "common"),
+                        "bonus": t.get("bonus", 0),
+                        "value_gp": t.get("value_gp", 0),
+                        "requires_attunement": t.get("requires_attunement", False),
+                        "properties": t.get("properties", {}),
+                        "discovery": t.get("discovery", ""),
+                    }
+                    for t in loc["treasure"]
+                ]
+            clean_locations[lid] = loc_data
 
         # Clean NPCs — strip extra fields
         clean_npcs = {}
@@ -736,13 +768,20 @@ class CampaignGenerator:
         # Clean plot hooks
         clean_hooks = []
         for hook in hooks_data.get("plot_hooks", []):
-            clean_hooks.append({
+            hook_data: dict = {
                 "id": hook.get("id", ""),
                 "title": hook.get("title", ""),
                 "description": hook.get("description", ""),
                 "trigger_location": hook.get("trigger_location"),
                 "connected_npcs": hook.get("connected_npcs", []),
-            })
+            }
+            if hook.get("rewards"):
+                hook_data["rewards"] = {
+                    "xp": hook["rewards"].get("xp", 0),
+                    "gold": hook["rewards"].get("gold", 0),
+                    "items": hook["rewards"].get("items", []),
+                }
+            clean_hooks.append(hook_data)
 
         # Clean encounter tables
         clean_encounters: dict[str, list] = {}

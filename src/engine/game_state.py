@@ -54,15 +54,30 @@ class GameState:
             "special_traits": char.special_traits,
         }
 
-    def add_item(self, character_id: str, item_name: str, quantity: int = 1) -> dict:
+    def add_item(
+        self, character_id: str, item_name: str, quantity: int = 1,
+        weight: float = 0.0, description: str = "",
+    ) -> dict:
         char = self.get_character(character_id)
         for item in char.inventory:
             if item.name.lower() == item_name.lower():
                 item.quantity += quantity
-                return {"success": True, "item": item_name, "quantity": item.quantity}
-        from src.models.character import Item
-        char.inventory.append(Item(name=item_name, quantity=quantity))
-        return {"success": True, "item": item_name, "quantity": quantity}
+                result: dict = {"success": True, "item": item_name, "quantity": item.quantity}
+                break
+        else:
+            from src.models.character import Item
+            char.inventory.append(Item(name=item_name, quantity=quantity, weight=weight, description=description))
+            result = {"success": True, "item": item_name, "quantity": quantity}
+
+        # Encumbrance check
+        from src.engine.rules import encumbrance_status
+        enc = encumbrance_status(char)
+        result["carry_weight"] = enc["current_weight"]
+        result["capacity"] = enc["capacity"]
+        if enc["tier"] != "normal":
+            result["encumbrance_warning"] = enc["tier"]
+            result["speed_penalty"] = enc["speed_penalty"]
+        return result
 
     def remove_item(self, character_id: str, item_name: str, quantity: int = 1) -> dict:
         char = self.get_character(character_id)
@@ -89,9 +104,33 @@ class GameState:
             if quest.id == quest_id:
                 if completed_objective and completed_objective not in quest.completed_objectives:
                     quest.completed_objectives.append(completed_objective)
+                old_status = quest.status
                 if new_status:
                     quest.status = new_status  # type: ignore[assignment]
-                return {"success": True, "quest": quest.title, "status": quest.status}
+                result: dict = {"success": True, "quest": quest.title, "status": quest.status}
+
+                # Auto-distribute rewards on completion
+                if new_status == "completed" and old_status != "completed" and quest.rewards:
+                    rewards = quest.rewards
+                    reward_summary: dict = {}
+                    if rewards.xp > 0:
+                        xp_result = self.award_xp(self.player_character_ids, rewards.xp)
+                        reward_summary["xp"] = xp_result
+                    if rewards.gold > 0:
+                        gold_each = rewards.gold // max(len(self.player_character_ids), 1)
+                        for cid in self.player_character_ids:
+                            char = self.characters.get(cid)
+                            if char:
+                                char.gold += gold_each
+                        reward_summary["gold_each"] = gold_each
+                    if rewards.items:
+                        reward_summary["items"] = rewards.items
+                        # Items added to first player's inventory; LLM can redistribute
+                        if self.player_character_ids:
+                            for item_name in rewards.items:
+                                self.add_item(self.player_character_ids[0], item_name)
+                    result["rewards_distributed"] = reward_summary
+                return result
         return {"success": False, "error": f"Quest {quest_id!r} not found."}
 
     def set_location(self, location_id: str) -> dict:

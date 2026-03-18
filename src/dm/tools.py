@@ -240,13 +240,15 @@ _STATE_TOOLS = [
     },
     {
         "name": "add_item",
-        "description": "Add an item to a character's inventory.",
+        "description": "Add an item to a character's inventory. Returns carry weight and warns if encumbered or over capacity.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "character_id": {"type": "string"},
                 "item_name": {"type": "string"},
                 "quantity": {"type": "integer", "default": 1},
+                "weight": {"type": "number", "default": 0, "description": "Weight per item in lbs"},
+                "description": {"type": "string", "default": ""},
             },
             "required": ["character_id", "item_name"],
         },
@@ -476,6 +478,71 @@ _STATE_TOOLS = [
                 "player_input": {"type": "string"},
             },
             "required": ["npc_id", "player_input"],
+        },
+    },
+    {
+        "name": "get_location_treasure",
+        "description": "Check what treasure is placed at a location (DM eyes only). Shows undiscovered items with their discovery conditions (DC checks, hidden locations). Use this when players search an area or investigate.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "location_id": {"type": "string", "description": "Location to check. Defaults to current location."},
+                "include_found": {"type": "boolean", "default": False, "description": "Include already-found items"},
+            },
+        },
+    },
+    {
+        "name": "claim_treasure",
+        "description": "Mark a treasure item as found and add it to a character's inventory. Call after the player discovers and picks up a pre-placed item. For magic items requiring attunement, also call attune_item() during a short rest.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "location_id": {"type": "string", "description": "Location where the treasure is. Defaults to current."},
+                "item_name": {"type": "string", "description": "Name of the treasure item"},
+                "character_id": {"type": "string", "description": "Character who picks it up"},
+            },
+            "required": ["item_name", "character_id"],
+        },
+    },
+    {
+        "name": "advance_time",
+        "description": "Advance the in-game clock. Call during travel, resting, or downtime. Returns current time, day/night status, and transition events.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "hours": {"type": "integer", "default": 0, "description": "Hours to advance"},
+                "minutes": {"type": "integer", "default": 0, "description": "Minutes to advance"},
+            },
+        },
+    },
+    {
+        "name": "attune_item",
+        "description": "Attune a magic item to a character. Max 3 attuned items per character (5e rules). Requires a short rest narratively.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "item_name": {"type": "string", "description": "Name of the magic item"},
+                "item_type": {"type": "string", "enum": ["weapon", "armor", "shield", "wondrous", "ring", "staff", "rod", "wand"], "description": "Type of magic item"},
+                "bonus": {"type": "integer", "default": 0, "description": "+1/+2/+3 bonus (weapons: attack+damage, armor: AC)"},
+                "rarity": {"type": "string", "enum": ["common", "uncommon", "rare", "very_rare", "legendary"], "default": "uncommon"},
+                "requires_attunement": {"type": "boolean", "default": True},
+                "properties": {"type": "object", "default": {}, "description": "Special properties, e.g. {\"daily_spell\": \"fireball\", \"charges\": 3}"},
+                "description": {"type": "string", "default": ""},
+            },
+            "required": ["character_id", "item_name", "item_type"],
+        },
+    },
+    {
+        "name": "unattune_item",
+        "description": "Remove attunement from a magic item, freeing the attunement slot.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "item_name": {"type": "string"},
+            },
+            "required": ["character_id", "item_name"],
         },
     },
 ]
@@ -721,7 +788,12 @@ class ToolDispatcher:
                 return rest_engine.long_rest(char)
 
             case "add_item":
-                return gs.add_item(inputs["character_id"], inputs["item_name"], inputs.get("quantity", 1))
+                return gs.add_item(
+                    inputs["character_id"], inputs["item_name"],
+                    quantity=inputs.get("quantity", 1),
+                    weight=inputs.get("weight", 0.0),
+                    description=inputs.get("description", ""),
+                )
 
             case "remove_item":
                 return gs.remove_item(inputs["character_id"], inputs["item_name"], inputs.get("quantity", 1))
@@ -874,6 +946,110 @@ class ToolDispatcher:
                     return {"success": False, "error": f"No active dialogue with {npc_id!r}. Call start_npc_dialogue first."}
                 response = session.respond(inputs["player_input"])
                 return {"success": True, "npc_id": npc_id, "response": response}
+
+            case "get_location_treasure":
+                loc_id = inputs.get("location_id", gs.world.current_location_id)
+                loc = gs.world.locations.get(loc_id)
+                if not loc:
+                    return {"success": False, "error": f"Unknown location: {loc_id!r}"}
+                include_found = inputs.get("include_found", False)
+                items = []
+                for t in loc.treasure:
+                    if t.found and not include_found:
+                        continue
+                    items.append({
+                        "name": t.name,
+                        "description": t.description,
+                        "item_type": t.item_type,
+                        "rarity": t.rarity,
+                        "bonus": t.bonus,
+                        "discovery": t.discovery,
+                        "found": t.found,
+                        "requires_attunement": t.requires_attunement,
+                    })
+                return {"success": True, "location": loc.name, "treasure": items, "count": len(items)}
+
+            case "claim_treasure":
+                loc_id = inputs.get("location_id", gs.world.current_location_id)
+                loc = gs.world.locations.get(loc_id)
+                if not loc:
+                    return {"success": False, "error": f"Unknown location: {loc_id!r}"}
+                item_name = inputs["item_name"]
+                for t in loc.treasure:
+                    if t.name.lower() == item_name.lower() and not t.found:
+                        t.found = True
+                        # Add to character's inventory
+                        result = gs.add_item(
+                            inputs["character_id"], t.name,
+                            weight=t.weight, description=t.description,
+                        )
+                        result["rarity"] = t.rarity
+                        result["item_type"] = t.item_type
+                        if t.bonus:
+                            result["bonus"] = t.bonus
+                        if t.requires_attunement:
+                            result["requires_attunement"] = True
+                            result["note"] = f"Requires attunement. Call attune_item() during a short rest."
+                        if t.value_gp:
+                            result["value_gp"] = t.value_gp
+                        return result
+                return {"success": False, "error": f"No unclaimed treasure {item_name!r} at {loc.name}."}
+
+            case "advance_time":
+                from src.engine.time_tracking import advance_time as _advance_time
+                return _advance_time(
+                    gs.world.time,
+                    hours=inputs.get("hours", 0),
+                    minutes=inputs.get("minutes", 0),
+                )
+
+            case "attune_item":
+                char = gs.get_character(inputs["character_id"])
+                from src.models.character import MagicItem
+                requires = inputs.get("requires_attunement", True)
+                if requires and len(char.attuned_items) >= 3:
+                    return {
+                        "success": False,
+                        "error": f"{char.name} already has 3 attuned items (max). Unattune one first.",
+                        "attuned": [mi.name for mi in char.attuned_items],
+                    }
+                # Check for duplicate attunement
+                item_name = inputs["item_name"]
+                if any(mi.name.lower() == item_name.lower() for mi in char.attuned_items):
+                    return {"success": False, "error": f"{char.name} is already attuned to {item_name!r}."}
+                magic_item = MagicItem(
+                    name=item_name,
+                    item_type=inputs["item_type"],
+                    bonus=inputs.get("bonus", 0),
+                    rarity=inputs.get("rarity", "uncommon"),
+                    requires_attunement=requires,
+                    properties=inputs.get("properties", {}),
+                    description=inputs.get("description", ""),
+                )
+                char.attuned_items.append(magic_item)
+                return {
+                    "success": True,
+                    "character": char.name,
+                    "item": magic_item.name,
+                    "bonus": magic_item.bonus,
+                    "slots_used": len(char.attuned_items),
+                    "slots_remaining": 3 - len(char.attuned_items),
+                }
+
+            case "unattune_item":
+                char = gs.get_character(inputs["character_id"])
+                item_name = inputs["item_name"]
+                for i, mi in enumerate(char.attuned_items):
+                    if mi.name.lower() == item_name.lower():
+                        char.attuned_items.pop(i)
+                        return {
+                            "success": True,
+                            "character": char.name,
+                            "removed": item_name,
+                            "slots_used": len(char.attuned_items),
+                            "slots_remaining": 3 - len(char.attuned_items),
+                        }
+                return {"success": False, "error": f"{char.name} is not attuned to {item_name!r}."}
 
             case _:
                 return {"success": False, "error": f"Unknown tool: {tool_name!r}"}

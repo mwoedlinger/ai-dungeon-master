@@ -48,6 +48,17 @@ class Armor(BaseModel):
     strength_requirement: int | None = None
 
 
+class MagicItem(BaseModel):
+    """A magic item that can be attuned to a character."""
+    name: str
+    item_type: str  # "weapon", "armor", "shield", "wondrous", "ring", "staff", etc.
+    bonus: int = 0  # +1/+2/+3 bonus (applied to attack/damage for weapons, AC for armor)
+    rarity: str = "common"  # common, uncommon, rare, very_rare, legendary
+    requires_attunement: bool = True
+    properties: dict[str, Any] = {}  # e.g. {"daily_spell": "fireball", "charges": 3}
+    description: str = ""
+
+
 class Character(BaseModel):
     id: str
     name: str
@@ -82,6 +93,8 @@ class Character(BaseModel):
     armor: Armor | None = None
     shield: bool = False
     inventory: list[Item] = []
+    gold: int = 0
+    attuned_items: list[MagicItem] = []  # max 3 per 5e rules
 
     background: str | None = None
     alignment: str | None = None

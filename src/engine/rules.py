@@ -6,6 +6,139 @@ from src.models.character import Character, DeathSaves
 from src.models.combat import AttackResult, CheckResult
 from src.models.monster import Monster
 
+# ---------------------------------------------------------------------------
+# Condition → mechanical effects (5e SRD)
+# ---------------------------------------------------------------------------
+# Each condition maps to a dict of mechanical effects:
+#   attack_advantage / attack_disadvantage: bool
+#   attacked_advantage / attacked_disadvantage: bool  (attackers get adv/disadv)
+#   ability_check_disadvantage: bool | list[str]  (True = all, list = specific abilities)
+#   saving_throw_advantage / saving_throw_disadvantage: bool | list[str]
+#   speed_zero: bool
+CONDITION_EFFECTS: dict[str, dict] = {
+    "blinded": {
+        "attack_disadvantage": True,
+        "attacked_advantage": True,
+        "ability_check_disadvantage": ["DEX"],  # perception-related
+    },
+    "charmed": {
+        # Can't attack the charmer (handled narratively by LLM)
+    },
+    "deafened": {
+        # Primarily narrative; no direct adv/disadv on attacks
+    },
+    "frightened": {
+        "ability_check_disadvantage": True,
+        "attack_disadvantage": True,
+    },
+    "grappled": {
+        "speed_zero": True,
+    },
+    "incapacitated": {
+        # Can't take actions or reactions (handled by action economy)
+    },
+    "invisible": {
+        "attack_advantage": True,
+        "attacked_disadvantage": True,
+    },
+    "paralyzed": {
+        "speed_zero": True,
+        "saving_throw_disadvantage": ["STR", "DEX"],
+        "attacked_advantage": True,
+    },
+    "petrified": {
+        "speed_zero": True,
+        "attack_disadvantage": True,
+        "saving_throw_disadvantage": ["STR", "DEX"],
+        "attacked_advantage": True,
+    },
+    "poisoned": {
+        "attack_disadvantage": True,
+        "ability_check_disadvantage": True,
+    },
+    "prone": {
+        "attack_disadvantage": True,
+        "attacked_advantage": True,  # melee within 5 ft; ranged gets disadv (simplified)
+    },
+    "restrained": {
+        "speed_zero": True,
+        "attack_disadvantage": True,
+        "attacked_advantage": True,
+        "saving_throw_disadvantage": ["DEX"],
+    },
+    "stunned": {
+        "speed_zero": True,
+        "saving_throw_disadvantage": ["STR", "DEX"],
+        "attacked_advantage": True,
+    },
+    "unconscious": {
+        "speed_zero": True,
+        "attacked_advantage": True,
+        "saving_throw_disadvantage": ["STR", "DEX"],
+    },
+    "exhaustion_1": {
+        "ability_check_disadvantage": True,
+    },
+    "exhaustion_2": {
+        "ability_check_disadvantage": True,
+        # speed halved — handled via speed_modifier if needed
+    },
+    "exhaustion_3": {
+        "ability_check_disadvantage": True,
+        "attack_disadvantage": True,
+        "saving_throw_disadvantage": True,
+    },
+}
+
+
+def _condition_modifiers(char: Character) -> dict[str, bool]:
+    """Aggregate advantage/disadvantage flags from all active conditions."""
+    flags: dict[str, bool] = {
+        "attack_advantage": False,
+        "attack_disadvantage": False,
+        "attacked_advantage": False,
+        "attacked_disadvantage": False,
+        "ability_check_disadvantage_all": False,
+        "saving_throw_disadvantage_all": False,
+        "saving_throw_advantage_all": False,
+    }
+    for cond in char.conditions:
+        effects = CONDITION_EFFECTS.get(cond, {})
+        for key in ("attack_advantage", "attack_disadvantage",
+                     "attacked_advantage", "attacked_disadvantage"):
+            if effects.get(key):
+                flags[key] = True
+        ac_disadv = effects.get("ability_check_disadvantage")
+        if ac_disadv is True:
+            flags["ability_check_disadvantage_all"] = True
+        st_disadv = effects.get("saving_throw_disadvantage")
+        if st_disadv is True:
+            flags["saving_throw_disadvantage_all"] = True
+        st_adv = effects.get("saving_throw_advantage")
+        if st_adv is True:
+            flags["saving_throw_advantage_all"] = True
+    return flags
+
+
+def _condition_check_disadvantage(char: Character, ability: str) -> bool:
+    """Check if any condition imposes disadvantage on ability checks for this ability."""
+    for cond in char.conditions:
+        effects = CONDITION_EFFECTS.get(cond, {})
+        ac_disadv = effects.get("ability_check_disadvantage")
+        if ac_disadv is True or (isinstance(ac_disadv, list) and ability in ac_disadv):
+            return True
+    return False
+
+
+def _condition_save_disadvantage(char: Character, ability: str) -> bool:
+    """Check if any condition imposes disadvantage on saving throws for this ability."""
+    for cond in char.conditions:
+        effects = CONDITION_EFFECTS.get(cond, {})
+        st_disadv = effects.get("saving_throw_disadvantage")
+        if st_disadv is True or (isinstance(st_disadv, list) and ability in st_disadv):
+            return True
+    return False
+
 
 def proficiency_bonus_for_level(level: int) -> int:
     """Standard 5e proficiency bonus by character level."""
@@ -56,6 +189,9 @@ def ability_check(
     advantage: bool = False,
     disadvantage: bool = False,
 ) -> CheckResult:
+    # Auto-apply condition-based disadvantage
+    if _condition_check_disadvantage(char, ability):
+        disadvantage = True
     roll = roll_dice("1d20", advantage=advantage, disadvantage=disadvantage)
     raw = roll.kept_roll if roll.kept_roll is not None else roll.individual_rolls[0]
     modifier = char.ability_scores.modifier(ability)
@@ -80,6 +216,9 @@ def saving_throw(
     advantage: bool = False,
     disadvantage: bool = False,
 ) -> CheckResult:
+    # Auto-apply condition-based disadvantage
+    if _condition_save_disadvantage(char, ability):
+        disadvantage = True
     roll = roll_dice("1d20", advantage=advantage, disadvantage=disadvantage)
     raw = roll.kept_roll if roll.kept_roll is not None else roll.individual_rolls[0]
     modifier = char.ability_scores.modifier(ability)
@@ -104,14 +243,35 @@ def attack_roll(
     advantage: bool = False,
     disadvantage: bool = False,
 ) -> AttackResult:
+    # Auto-apply condition-based advantage/disadvantage
+    atk_flags = _condition_modifiers(attacker)
+    tgt_flags = _condition_modifiers(target)
+    if atk_flags["attack_advantage"]:
+        advantage = True
+    if atk_flags["attack_disadvantage"]:
+        disadvantage = True
+    if tgt_flags["attacked_advantage"]:
+        advantage = True
+    if tgt_flags["attacked_disadvantage"]:
+        disadvantage = True
+
     roll = roll_dice("1d20", advantage=advantage, disadvantage=disadvantage)
     raw = roll.kept_roll if roll.kept_roll is not None else roll.individual_rolls[0]
     is_crit = raw == 20
     is_nat1 = raw == 1
 
+    # Magic weapon bonus (from attuned items)
+    magic_attack_bonus = 0
+    magic_damage_bonus = 0
+    for mi in getattr(attacker, "attuned_items", []):
+        if mi.item_type == "weapon" and mi.name.lower() == weapon.name.lower():
+            magic_attack_bonus += mi.bonus
+            magic_damage_bonus += mi.bonus
+            break
+
     if weapon.attack_bonus_override is not None:
-        attack_bonus = weapon.attack_bonus_override
-        ability_mod = 0  # override means no separate ability mod
+        attack_bonus = weapon.attack_bonus_override + magic_attack_bonus
+        ability_mod = 0
     else:
         if "finesse" in weapon.properties:
             str_mod = attacker.ability_scores.modifier("STR")
@@ -121,9 +281,15 @@ def attack_roll(
             ability_mod = attacker.ability_scores.modifier("DEX")
         else:
             ability_mod = attacker.ability_scores.modifier("STR")
-        attack_bonus = ability_mod + attacker.proficiency_bonus
+        attack_bonus = ability_mod + attacker.proficiency_bonus + magic_attack_bonus
 
-    hits = is_crit or (not is_nat1 and raw + attack_bonus >= target.ac)
+    # Magic armor bonus on target
+    effective_ac = target.ac
+    for mi in getattr(target, "attuned_items", []):
+        if mi.item_type in ("armor", "shield"):
+            effective_ac += mi.bonus
+
+    hits = is_crit or (not is_nat1 and raw + attack_bonus >= effective_ac)
 
     damage: int | None = None
     if hits:
@@ -131,20 +297,66 @@ def attack_roll(
         damage = damage_roll.total
         if is_crit:
             crit_roll = roll_dice(weapon.damage_dice)
-            damage += crit_roll.total  # double dice
-        damage += ability_mod  # add ability mod once
+            damage += crit_roll.total
+        damage += ability_mod + magic_damage_bonus
 
     return AttackResult(
         roll=roll,
         attack_bonus=attack_bonus,
         total_attack=raw + attack_bonus,
-        target_ac=target.ac,
+        target_ac=effective_ac,
         hits=hits,
         is_crit=is_crit,
         is_nat1=is_nat1,
         damage=damage,
         damage_type=weapon.damage_type,
     )
+
+
+# ---------------------------------------------------------------------------
+# Carrying capacity & encumbrance
+# ---------------------------------------------------------------------------
+
+def carrying_capacity(char: Character) -> float:
+    """Max carry weight in lbs: STR × 15."""
+    return char.ability_scores.STR * 15.0
+
+
+def current_carry_weight(char: Character) -> float:
+    """Total weight of all inventory items."""
+    return sum(item.weight * item.quantity for item in char.inventory)
+
+
+def encumbrance_status(char: Character) -> dict:
+    """Return carry weight, capacity, and encumbrance tier.
+
+    Variant encumbrance thresholds:
+      - Normal: weight ≤ STR × 5
+      - Encumbered (−10 ft speed): STR × 5 < weight ≤ STR × 10
+      - Heavily encumbered (−20 ft speed, disadv on STR/DEX/CON checks): STR × 10 < weight ≤ STR × 15
+      - Over capacity: weight > STR × 15 (speed 0)
+    """
+    weight = current_carry_weight(char)
+    capacity = carrying_capacity(char)
+    str_score = char.ability_scores.STR
+    if weight > capacity:
+        tier = "over_capacity"
+        speed_penalty = char.speed  # effectively speed 0
+    elif weight > str_score * 10:
+        tier = "heavily_encumbered"
+        speed_penalty = 20
+    elif weight > str_score * 5:
+        tier = "encumbered"
+        speed_penalty = 10
+    else:
+        tier = "normal"
+        speed_penalty = 0
+    return {
+        "current_weight": weight,
+        "capacity": capacity,
+        "tier": tier,
+        "speed_penalty": speed_penalty,
+    }
 
 
 def apply_damage(target: Character, amount: int, damage_type: str) -> dict:

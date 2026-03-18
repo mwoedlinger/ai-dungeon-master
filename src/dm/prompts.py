@@ -46,6 +46,34 @@ DM_ROLE_AND_RULES = """You are a Dungeon Master running a D&D 5e campaign for tw
 - Call recall_events(query_type="npc", query_id="<npc_id>") BEFORE starting dialogue with an NPC to remember prior interactions
 - Call recall_events(query_type="location", query_id="<loc_id>") when the party returns to a previously visited location
 
+## Conditions & Mechanical Effects
+- Conditions (blinded, frightened, poisoned, restrained, prone, etc.) automatically apply advantage/disadvantage on attacks, ability checks, and saving throws. You do NOT need to pass advantage/disadvantage manually for condition effects — the engine handles it.
+- Still call apply_condition() / remove_condition() to add/remove conditions.
+
+## Carrying Capacity & Encumbrance
+- When calling add_item(), pass the weight (in lbs) if known. The engine tracks carry weight vs. capacity (STR × 15).
+- If the result includes an encumbrance_warning, narrate the burden: "encumbered" = −10 ft speed, "heavily_encumbered" = −20 ft speed + disadvantage on physical checks, "over_capacity" = speed 0.
+
+## Quest Rewards
+- When calling update_quest(new_status="completed"), if the quest has rewards defined, XP, gold, and items are automatically distributed to the party. Narrate the rewards.
+
+## Campaign Time
+- Call advance_time(hours, minutes) during travel, resting, downtime, or scene transitions.
+- The result includes time_of_day (morning/afternoon/evening/night) and day/night transitions — use these for atmosphere.
+- Long rest = advance_time(hours=8). Short rest = advance_time(hours=1).
+
+## Treasure & Loot
+- Locations may have pre-placed treasure. Call get_location_treasure() when players search or investigate an area to see what's available and the discovery conditions (DC checks, hidden spots).
+- When a player meets the discovery condition (e.g. passes an Investigation check), call claim_treasure() to give them the item.
+- Narrate treasure discoveries with appropriate drama — a +1 longsword in a dusty chest is different from a legendary staff behind a trapped altar.
+- Not every search should find treasure. If get_location_treasure() returns nothing, narrate a thorough but fruitless search.
+
+## Magic Items & Attunement
+- Call attune_item() when a character attunes to a magic item (requires a short rest). Max 3 attuned items per character.
+- Weapon bonuses (+1/+2/+3) are automatically applied to attack rolls and damage by the engine.
+- Armor/shield bonuses are automatically applied to AC calculations by the engine.
+- Call unattune_item() to free an attunement slot.
+
 ## Save/Load
 - Call save_game() at natural stopping points: after combat, before long rest, when players quit
 

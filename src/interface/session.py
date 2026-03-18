@@ -14,8 +14,10 @@ from src.interface.cli import (
     display_combat_state,
     display_dice_roll,
     display_header,
+    display_location_transition,
     display_narrative,
     display_status_bar,
+    display_turn_separator,
 )
 from src.interface.commands import CommandContext, try_handle_command
 from src.log.event_log import EventLog
@@ -42,11 +44,13 @@ class SessionManager:
         self.save_path = save_path
         self.mode = TurnMode.EXPLORATION
         self._last_event_idx = 0
+        self._last_location_id: str | None = None
 
     def run(self) -> None:
         """Main game loop."""
         clear_screen()
         display_header()
+        self._last_location_id = self.game_state.world.current_location_id
 
         # Opening scene
         self._process_and_render(
@@ -150,49 +154,40 @@ class SessionManager:
             clear_screen()
             display_header()
             display_combat_state(self.game_state)
-            self._display_turn_header(current_char.name, is_player=True)
-            self._process_and_render(f"[{current_char.name}]: {player_input}")
+            display_turn_separator(current_char.name, is_player=True)
+            self._process_and_render(f"[{current_char.name}]: {player_input}", combat=True)
         else:
             # Monster turn — DM acts automatically
             clear_screen()
             display_header()
             display_combat_state(self.game_state)
-            self._display_turn_header(current_char.name, is_player=False)
+            display_turn_separator(current_char.name, is_player=False)
             self._process_and_render(
                 f"[DM: It is {current_char.name}'s turn. "
                 f"Call get_monster_actions('{current_id}') first, "
-                f"then resolve their actions, then call end_turn().]"
+                f"then resolve their actions, then call end_turn().]",
+                combat=True,
             )
 
         if not self.game_state.combat.active:
             self.mode = TurnMode.EXPLORATION
 
-    @staticmethod
-    def _display_turn_header(name: str, *, is_player: bool) -> None:
-        """Print a clear visual separator for the current combatant's turn."""
-        if is_player:
-            console.print(f"\n  [bold cyan]── {name}'s Turn ──[/bold cyan]\n")
-        else:
-            console.print(f"\n  [bold red]── {name}'s Turn ──[/bold red]\n")
-
-    def _process_and_render(self, player_input: str) -> None:
+    def _process_and_render(self, player_input: str, *, combat: bool = False) -> None:
         """Process input with streaming output, then show dice rolls and narrative."""
-        # Get location name for the streamer header
-        loc_id = self.game_state.world.current_location_id
-        loc = self.game_state.world.locations.get(loc_id)
+        loc_before = self.game_state.world.current_location_id
+        loc = self.game_state.world.locations.get(loc_before)
         loc_name = loc.name if loc else ""
 
         # Show dice rolls that happened before streaming starts
         self._flush_dice_rolls()
 
         # Set up the narrative streamer
-        streamer = NarrativeStreamer(location_name=loc_name)
+        streamer = NarrativeStreamer(location_name=loc_name, combat=combat)
         streamed_any = False
 
         def on_chunk(text: str) -> None:
             nonlocal streamed_any
             if not streamed_any:
-                # Flush any dice rolls that accumulated during tool calls
                 self._flush_dice_rolls()
                 streamed_any = True
             streamer.write_chunk(text)
@@ -206,7 +201,15 @@ class SessionManager:
             # Fallback: no streaming happened (e.g. non-streaming backend)
             self._flush_dice_rolls()
             if response:
-                display_narrative(response, location_name=loc_name)
+                display_narrative(response, location_name=loc_name, combat=combat)
+
+        # Check for location transition
+        loc_after = self.game_state.world.current_location_id
+        if loc_after != loc_before:
+            new_loc = self.game_state.world.locations.get(loc_after)
+            if new_loc:
+                display_location_transition(new_loc.name)
+            self._last_location_id = loc_after
 
     def _flush_dice_rolls(self) -> None:
         """Render any new dice roll events from the event log."""
