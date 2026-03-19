@@ -572,6 +572,63 @@ _STATE_TOOLS = [
             "required": ["character_id", "item_name"],
         },
     },
+    {
+        "name": "equip_armor",
+        "description": "Equip armor from inventory, replacing current armor (returned to inventory). Recalculates AC. Use 'unequip' to just remove current armor without replacing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "item_name": {"type": "string", "description": "Armor name from inventory, or 'unequip' to remove current armor"},
+                "base_ac": {"type": "integer", "description": "Armor base AC (e.g. 11 for leather, 14 for chain shirt, 16 for chain mail, 18 for plate)"},
+                "armor_type": {"type": "string", "enum": ["light", "medium", "heavy"], "description": "Armor category"},
+                "stealth_disadvantage": {"type": "boolean", "default": False},
+                "strength_requirement": {"type": "integer", "description": "Minimum STR to wear without speed penalty"},
+            },
+            "required": ["character_id", "item_name"],
+        },
+    },
+    {
+        "name": "equip_shield",
+        "description": "Equip or unequip a shield (+2 AC). Recalculates AC.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "equip": {"type": "boolean", "description": "True to equip, False to unequip"},
+            },
+            "required": ["character_id", "equip"],
+        },
+    },
+    {
+        "name": "equip_weapon",
+        "description": "Add a weapon to a character's active weapon list (from inventory or loot). To remove, use unequip_weapon.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "weapon_name": {"type": "string"},
+                "damage_dice": {"type": "string", "description": "e.g. '1d8', '2d6'"},
+                "damage_type": {"type": "string", "description": "e.g. 'slashing', 'piercing', 'bludgeoning'"},
+                "properties": {"type": "array", "items": {"type": "string"}, "default": [], "description": "e.g. ['finesse', 'light'] or ['ranged', 'heavy']"},
+                "range_normal": {"type": "integer", "description": "Normal range in feet (ranged weapons)"},
+                "range_long": {"type": "integer", "description": "Long range in feet (ranged weapons)"},
+            },
+            "required": ["character_id", "weapon_name", "damage_dice", "damage_type"],
+        },
+    },
+    {
+        "name": "unequip_weapon",
+        "description": "Remove a weapon from a character's active weapon list (returns to inventory).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "weapon_name": {"type": "string"},
+            },
+            "required": ["character_id", "weapon_name"],
+        },
+    },
 ]
 
 _ECONOMY_TOOLS = [
@@ -1065,12 +1122,19 @@ class ToolDispatcher:
                 ability, delta = inputs["ability"], inputs["increase_by"]
                 new_val = min(20, getattr(char.ability_scores, ability) + delta)
                 setattr(char.ability_scores, ability, new_val)
-                return {
+                # Recalculate AC if an AC-relevant ability changed
+                from src.engine.rules import recalculate_ac
+                old_ac = char.ac
+                char.ac = recalculate_ac(char)
+                result = {
                     "success": True,
                     "character": char.name,
                     "ability": ability,
                     "new_score": new_val,
                 }
+                if char.ac != old_ac:
+                    result["ac_changed"] = f"{old_ac} → {char.ac}"
+                return result
 
             case "use_action_surge":
                 char = gs.get_character(inputs["character_id"])
@@ -1168,7 +1232,16 @@ class ToolDispatcher:
                     return {"success": False, "error": "No LLM backend available for NPC dialogue."}
                 npc = gs.campaign.get_npc(npc_id)
                 if npc is None:
-                    return {"success": False, "error": f"NPC {npc_id!r} not found."}
+                    # Try fuzzy match before failing
+                    valid_ids = list(gs.campaign.key_npcs.keys())
+                    matched = gs.campaign._fuzzy_match_id(npc_id, valid_ids)
+                    if matched:
+                        npc = gs.campaign.get_npc(matched)
+                        npc_id = matched
+                if npc is None:
+                    valid_ids = list(gs.campaign.key_npcs.keys())
+                    ids_str = ", ".join(sorted(valid_ids)) if valid_ids else "(none)"
+                    return {"success": False, "error": f"NPC {npc_id!r} not found. Valid NPC IDs: {ids_str}"}
                 from src.dm.npc_dialogue import NPCDialogueSession
                 session = NPCDialogueSession(
                     npc=npc, backend=self.backend, campaign=gs.campaign,
@@ -1270,7 +1343,7 @@ class ToolDispatcher:
                     description=inputs.get("description", ""),
                 )
                 char.attuned_items.append(magic_item)
-                return {
+                result = {
                     "success": True,
                     "character": char.name,
                     "item": magic_item.name,
@@ -1278,6 +1351,9 @@ class ToolDispatcher:
                     "slots_used": len(char.attuned_items),
                     "slots_remaining": 3 - len(char.attuned_items),
                 }
+                # Note: magic item AC bonuses are applied at attack-resolution
+                # time, not baked into char.ac, to avoid double-stacking.
+                return result
 
             case "unattune_item":
                 char = gs.get_character(inputs["character_id"])
@@ -1293,6 +1369,139 @@ class ToolDispatcher:
                             "slots_remaining": 3 - len(char.attuned_items),
                         }
                 return {"success": False, "error": f"{char.name} is not attuned to {item_name!r}."}
+
+            case "equip_armor":
+                char = gs.get_character(inputs["character_id"])
+                from src.engine.rules import recalculate_ac
+                from src.models.character import Armor as ArmorModel
+                item_name = inputs["item_name"]
+
+                if item_name.lower() == "unequip":
+                    # Just remove current armor
+                    if char.armor is None:
+                        return {"success": False, "error": f"{char.name} has no armor equipped."}
+                    old_armor = char.armor
+                    # Return old armor to inventory
+                    gs.add_item(inputs["character_id"], old_armor.name)
+                    char.armor = None
+                    char.ac = recalculate_ac(char)
+                    return {
+                        "success": True,
+                        "character": char.name,
+                        "unequipped": old_armor.name,
+                        "new_ac": char.ac,
+                    }
+
+                # Equip new armor — need base_ac and armor_type
+                if "base_ac" not in inputs or "armor_type" not in inputs:
+                    return {
+                        "success": False,
+                        "error": "Must provide base_ac and armor_type when equipping armor.",
+                    }
+
+                # Remove from inventory if present
+                inv_match = next(
+                    (it for it in char.inventory if it.name.lower() == item_name.lower()),
+                    None,
+                )
+                if inv_match:
+                    gs.remove_item(inputs["character_id"], inv_match.name, 1)
+
+                # Return old armor to inventory
+                old_armor_name = None
+                if char.armor:
+                    old_armor_name = char.armor.name
+                    gs.add_item(inputs["character_id"], char.armor.name)
+
+                char.armor = ArmorModel(
+                    name=item_name,
+                    base_ac=inputs["base_ac"],
+                    armor_type=inputs["armor_type"],
+                    stealth_disadvantage=inputs.get("stealth_disadvantage", False),
+                    strength_requirement=inputs.get("strength_requirement"),
+                )
+                old_ac = char.ac
+                char.ac = recalculate_ac(char)
+                result = {
+                    "success": True,
+                    "character": char.name,
+                    "equipped": item_name,
+                    "old_ac": old_ac,
+                    "new_ac": char.ac,
+                }
+                if old_armor_name:
+                    result["returned_to_inventory"] = old_armor_name
+                return result
+
+            case "equip_shield":
+                char = gs.get_character(inputs["character_id"])
+                from src.engine.rules import recalculate_ac
+                equip = inputs["equip"]
+                if equip and char.shield:
+                    return {"success": False, "error": f"{char.name} already has a shield equipped."}
+                if not equip and not char.shield:
+                    return {"success": False, "error": f"{char.name} has no shield equipped."}
+                old_ac = char.ac
+                char.shield = equip
+                char.ac = recalculate_ac(char)
+                action = "equipped" if equip else "unequipped"
+                return {
+                    "success": True,
+                    "character": char.name,
+                    "shield": action,
+                    "old_ac": old_ac,
+                    "new_ac": char.ac,
+                }
+
+            case "equip_weapon":
+                char = gs.get_character(inputs["character_id"])
+                from src.models.character import Weapon as WeaponModel
+                weapon_name = inputs["weapon_name"]
+                # Check if already equipped
+                if any(w.name.lower() == weapon_name.lower() for w in char.weapons):
+                    return {"success": False, "error": f"{char.name} already has {weapon_name!r} equipped."}
+                # Remove from inventory if present
+                inv_match = next(
+                    (it for it in char.inventory if it.name.lower() == weapon_name.lower()),
+                    None,
+                )
+                if inv_match:
+                    gs.remove_item(inputs["character_id"], inv_match.name, 1)
+                weapon = WeaponModel(
+                    name=weapon_name,
+                    damage_dice=inputs["damage_dice"],
+                    damage_type=inputs["damage_type"],
+                    properties=inputs.get("properties", []),
+                    range_normal=inputs.get("range_normal"),
+                    range_long=inputs.get("range_long"),
+                )
+                char.weapons.append(weapon)
+                return {
+                    "success": True,
+                    "character": char.name,
+                    "equipped": weapon_name,
+                    "damage": f"{weapon.damage_dice} {weapon.damage_type}",
+                    "weapons": [w.name for w in char.weapons],
+                }
+
+            case "unequip_weapon":
+                char = gs.get_character(inputs["character_id"])
+                weapon_name = inputs["weapon_name"]
+                for i, w in enumerate(char.weapons):
+                    if w.name.lower() == weapon_name.lower():
+                        char.weapons.pop(i)
+                        gs.add_item(inputs["character_id"], weapon_name)
+                        return {
+                            "success": True,
+                            "character": char.name,
+                            "unequipped": weapon_name,
+                            "weapons": [w.name for w in char.weapons],
+                        }
+                return {
+                    "success": False,
+                    "error": f"{char.name} has no weapon {weapon_name!r} equipped.",
+                    "equipped_weapons": [w.name for w in char.weapons],
+                }
 
             # --- Economy ---
             case "buy_item":

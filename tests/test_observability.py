@@ -156,14 +156,79 @@ class TestDungeonMasterDebug:
         assert calls[0][0] == "roll_dice"
 
 
+class TestIntermediateTextAccumulation:
+    """Test that narrative text from tool-call iterations is not lost."""
+
+    def test_intermediate_text_collected(self):
+        """Simulate the DM loop logic: text from tool-call iterations
+        should be combined with the final narrative."""
+        # This mirrors the accumulation logic in process_player_input
+        intermediate_text_parts: list[str] = []
+
+        # Iteration 0: LLM emits text + tool call
+        iter0_text = "The merchant reaches under the counter and pulls out an old map."
+        iter0_tool_calls = [{"name": "add_item", "input": {"item": "Old Map"}}]
+        if iter0_text.strip() and iter0_tool_calls:
+            intermediate_text_parts.append(iter0_text.strip())
+
+        # Iteration 1: LLM emits final narrative (no tool calls)
+        final_text = "\"Take care with that map,\" the merchant warns."
+
+        # Combine
+        if intermediate_text_parts:
+            combined = "\n\n".join(intermediate_text_parts)
+            if final_text:
+                combined += "\n\n" + final_text
+            text = combined
+        else:
+            text = final_text
+
+        assert "old map" in text.lower()
+        assert "Take care" in text
+        assert text.startswith("The merchant reaches")
+
+    def test_no_intermediate_text(self):
+        """When no intermediate text exists, final text is returned as-is."""
+        intermediate_text_parts: list[str] = []
+        final_text = "The tavern is quiet tonight."
+
+        if intermediate_text_parts:
+            combined = "\n\n".join(intermediate_text_parts)
+            if final_text:
+                combined += "\n\n" + final_text
+            text = combined
+        else:
+            text = final_text or "[The DM pauses thoughtfully...]"
+
+        assert text == "The tavern is quiet tonight."
+
+    def test_empty_intermediate_text_skipped(self):
+        """Empty or whitespace-only intermediate text is not accumulated."""
+        intermediate_text_parts: list[str] = []
+
+        # Iteration with empty text alongside tool call
+        iter_text = "   "
+        if iter_text.strip():
+            intermediate_text_parts.append(iter_text.strip())
+
+        assert len(intermediate_text_parts) == 0
+
+
 class TestLoggingConfiguration:
-    def test_setup_logging_debug(self):
-        """Test that _setup_logging configures correct level."""
+    def test_setup_logging_debug(self, tmp_path):
+        """Test that _setup_logging configures correct level and creates log file."""
         import logging
         from main import _setup_logging
-        _setup_logging(debug=True)
+        log_path = _setup_logging(debug=True, log_dir=str(tmp_path))
         root = logging.getLogger()
         assert root.level == logging.DEBUG
+        assert log_path is not None
+        assert log_path.exists()
+        # Clean up file handler
+        for h in root.handlers[:]:
+            if isinstance(h, logging.FileHandler):
+                root.removeHandler(h)
+                h.close()
         # Reset
         _setup_logging(debug=False, verbose=False)
 
@@ -179,6 +244,27 @@ class TestLoggingConfiguration:
     def test_setup_logging_default(self):
         import logging
         from main import _setup_logging
-        _setup_logging()
+        result = _setup_logging()
         root = logging.getLogger()
         assert root.level == logging.WARNING
+        assert result is None
+
+    def test_debug_log_file_receives_messages(self, tmp_path):
+        """Test that debug log file captures log messages."""
+        import logging
+        from main import _setup_logging
+        log_path = _setup_logging(debug=True, log_dir=str(tmp_path))
+        test_logger = logging.getLogger("test.debug_file")
+        test_logger.debug("test debug message for file")
+        # Flush handlers
+        root = logging.getLogger()
+        for h in root.handlers:
+            h.flush()
+        content = log_path.read_text()
+        assert "test debug message for file" in content
+        # Clean up file handler
+        for h in root.handlers[:]:
+            if isinstance(h, logging.FileHandler):
+                root.removeHandler(h)
+                h.close()
+        _setup_logging(debug=False, verbose=False)

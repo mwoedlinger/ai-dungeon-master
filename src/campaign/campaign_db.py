@@ -402,13 +402,58 @@ class CampaignData:
                 hooks.append(hook)
         return hooks
 
+    def _fuzzy_match_id(self, query_id: str, valid_ids: list[str]) -> str | None:
+        """Try to match a guessed ID against valid IDs using fuzzy heuristics.
+
+        Handles common LLM mistakes: wrong word order (captain_thorvald vs
+        thorvald_militia_captain), added/dropped prefixes (the_missing_woodcutters
+        vs missing_woodcutters), case differences.
+        """
+        q = query_id.lower().strip()
+        # Exact match (case-insensitive)
+        for vid in valid_ids:
+            if vid.lower() == q:
+                return vid
+        # Substring containment: if the query is contained in a valid ID or vice versa
+        for vid in valid_ids:
+            vl = vid.lower()
+            if q in vl or vl in q:
+                return vid
+        # Word overlap: match if all significant words in the query appear in a valid ID
+        q_words = set(q.replace("-", "_").split("_"))
+        q_words -= {"the", "a", "an", "of", "in", "at", "to"}  # strip articles
+        for vid in valid_ids:
+            v_words = set(vid.lower().replace("-", "_").split("_"))
+            if q_words and q_words <= v_words:
+                return vid
+            # Also check reverse: all valid ID words in query
+            v_words -= {"the", "a", "an", "of", "in", "at", "to"}
+            if v_words and v_words <= q_words:
+                return vid
+        return None
+
+    def _not_found_error(self, entity_type: str, id: str, valid_ids: list[str]) -> dict:
+        """Build a helpful 'not found' error that lists valid IDs."""
+        ids_str = ", ".join(sorted(valid_ids)) if valid_ids else "(none)"
+        return {
+            "success": False,
+            "error": f"{entity_type} {id!r} not found. Valid IDs: {ids_str}",
+        }
+
     def query(self, query_type: str, id: str) -> dict:
         """Handle query_world_lore tool calls from the LLM."""
         match query_type:
             case "location":
+                # Fuzzy match location ID
+                valid_ids = list(self.locations.keys())
                 loc = self.get_location(id)
                 if not loc:
-                    return {"success": False, "error": f"Location {id!r} not found."}
+                    matched = self._fuzzy_match_id(id, valid_ids)
+                    if matched:
+                        loc = self.get_location(matched)
+                        id = matched
+                if not loc:
+                    return self._not_found_error("Location", id, valid_ids)
                 connected = self.get_connected_locations(id)
                 nearby_names = {c.id: c.name for c in connected}
                 npcs_here = self.get_npcs_at_location(id)
@@ -422,28 +467,38 @@ class CampaignData:
                     "possible_encounters": [e.model_dump() for e in encounters],
                 }
             case "npc":
+                valid_ids = list(self.key_npcs.keys())
                 npc = self.get_npc(id)
                 if not npc:
-                    # Try by iterating (legacy compat)
-                    if self._legacy:
-                        npc = self._key_npcs.get(id)
-                    if not npc:
-                        return {"success": False, "error": f"NPC {id!r} not found."}
+                    matched = self._fuzzy_match_id(id, valid_ids)
+                    if matched:
+                        npc = self.get_npc(matched)
+                if not npc:
+                    return self._not_found_error("NPC", id, valid_ids)
                 return {"success": True, "npc": npc.model_dump()}
             case "faction":
+                valid_ids = [f.id or f.name for f in self.factions]
                 entity = self.get_entity("faction", id)
                 if not entity:
-                    # Legacy: try name match
-                    if self._legacy:
-                        for f in self._factions:
-                            if f.name.lower().replace(" ", "_") == id.lower() or f.name == id:
-                                return {"success": True, "faction": f.model_dump()}
-                    return {"success": False, "error": f"Faction {id!r} not found."}
+                    # Try name match
+                    for f in self.factions:
+                        if f.name.lower().replace(" ", "_") == id.lower() or f.name == id:
+                            return {"success": True, "faction": f.model_dump()}
+                    matched = self._fuzzy_match_id(id, valid_ids)
+                    if matched:
+                        entity = self.get_entity("faction", matched)
+                if not entity:
+                    return self._not_found_error("Faction", id, valid_ids)
                 return {"success": True, "faction": entity.model_dump()}
             case "plot_hook":
+                valid_ids = [h.id for h in self.plot_hooks]
                 entity = self.get_entity("plot_hook", id)
                 if not entity:
-                    return {"success": False, "error": f"Plot hook {id!r} not found."}
+                    matched = self._fuzzy_match_id(id, valid_ids)
+                    if matched:
+                        entity = self.get_entity("plot_hook", matched)
+                if not entity:
+                    return self._not_found_error("Plot hook", id, valid_ids)
                 return {"success": True, "plot_hook": entity.model_dump()}
             case _:
                 return {"success": False, "error": f"Unknown query_type: {query_type!r}"}

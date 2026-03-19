@@ -328,6 +328,52 @@ def attack_roll(
 
 
 # ---------------------------------------------------------------------------
+# AC recalculation
+# ---------------------------------------------------------------------------
+
+_UNARMORED_DEFENSE_CLASSES: dict[str, list[str]] = {
+    "Monk": ["DEX", "WIS"],
+    "Barbarian": ["DEX", "CON"],
+}
+
+
+def recalculate_ac(char: Character) -> int:
+    """Compute AC from current armor, ability scores, class features, and shield.
+
+    Follows 5e SRD rules:
+      - Heavy armor: base_ac (no DEX)
+      - Medium armor: base_ac + min(DEX mod, 2)
+      - Light armor: base_ac + DEX mod
+      - No armor: 10 + DEX mod (or Unarmored Defense for Monk/Barbarian)
+      - Shield: +2 AC
+    Magic item bonuses (from attuned items) are NOT included here — those are
+    applied at attack-resolution time in attack_roll() so they don't double-stack.
+    """
+    dex_mod = char.ability_scores.modifier("DEX")
+
+    if char.armor:
+        atype = char.armor.armor_type.lower()
+        if atype == "heavy":
+            base = char.armor.base_ac
+        elif atype == "medium":
+            base = char.armor.base_ac + min(2, dex_mod)
+        else:  # light
+            base = char.armor.base_ac + dex_mod
+    else:
+        # Unarmored Defense
+        abilities = _UNARMORED_DEFENSE_CLASSES.get(char.class_name)
+        if abilities:
+            base = 10 + sum(char.ability_scores.modifier(a) for a in abilities)
+        else:
+            base = 10 + dex_mod
+
+    if char.shield:
+        base += 2
+
+    return base
+
+
+# ---------------------------------------------------------------------------
 # Carrying capacity & encumbrance
 # ---------------------------------------------------------------------------
 

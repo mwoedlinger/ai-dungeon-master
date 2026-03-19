@@ -479,3 +479,77 @@ class TestShatteredCrownDirectory:
     def test_validation_passes(self, campaign: CampaignData):
         errors = validate_campaign(campaign)
         assert errors == [], f"Validation errors: {errors}"
+
+
+# ---------------------------------------------------------------------------
+# Fuzzy ID matching & helpful error messages
+# ---------------------------------------------------------------------------
+
+class TestFuzzyIDMatching:
+    """Test that query_world_lore fuzzy-matches IDs and shows valid IDs on error."""
+
+    @pytest.fixture
+    def campaign(self, legacy_json_file: Path) -> CampaignData:
+        return load_campaign(legacy_json_file)
+
+    def test_exact_match(self, campaign: CampaignData):
+        result = campaign.query("npc", "bob")
+        assert result["success"] is True
+
+    def test_case_insensitive_match(self, campaign: CampaignData):
+        result = campaign.query("npc", "Bob")
+        assert result["success"] is True
+
+    def test_substring_match(self, campaign: CampaignData):
+        # "wolves" is a substring of the plot_hook id "wolves"
+        result = campaign.query("plot_hook", "wolves")
+        assert result["success"] is True
+
+    def test_not_found_lists_valid_ids(self, campaign: CampaignData):
+        result = campaign.query("npc", "nonexistent_npc")
+        assert result["success"] is False
+        assert "Valid IDs" in result["error"]
+        assert "bob" in result["error"]
+
+    def test_location_not_found_lists_valid_ids(self, campaign: CampaignData):
+        result = campaign.query("location", "castle")
+        assert result["success"] is False
+        assert "village" in result["error"]
+        assert "forest" in result["error"]
+
+    def test_plot_hook_not_found_lists_valid_ids(self, campaign: CampaignData):
+        result = campaign.query("plot_hook", "dragon_attack")
+        assert result["success"] is False
+        assert "wolves" in result["error"]
+
+    def test_fuzzy_match_word_overlap(self):
+        """Test the fuzzy matcher directly with word-overlap heuristic."""
+        campaign = CampaignData.from_dict({
+            "title": "T", "setting_overview": "S",
+            "starting_location_id": "v",
+            "locations": {"v": {"id": "v", "name": "V", "description": "V"}},
+            "key_npcs": {
+                "thorvald_militia_captain": {
+                    "name": "Captain Thorvald",
+                    "location": "v",
+                    "personality": "Stern",
+                    "goals": "Protect",
+                },
+            },
+            "plot_hooks": [
+                {"id": "missing_woodcutters", "title": "MW", "description": "D"},
+            ],
+        })
+        # LLM guesses wrong word order
+        assert campaign._fuzzy_match_id(
+            "captain_thorvald", ["thorvald_militia_captain"]
+        ) == "thorvald_militia_captain"
+        # LLM adds prefix
+        assert campaign._fuzzy_match_id(
+            "the_missing_woodcutters", ["missing_woodcutters"]
+        ) == "missing_woodcutters"
+        # Query succeeds via fuzzy match
+        result = campaign.query("npc", "captain_thorvald")
+        assert result["success"] is True
+        result = campaign.query("plot_hook", "the_missing_woodcutters")
+        assert result["success"] is True

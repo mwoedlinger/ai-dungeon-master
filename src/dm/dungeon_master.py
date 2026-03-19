@@ -155,6 +155,13 @@ class DungeonMaster:
         logger.debug("Player input: %s", player_input[:100])
         self.context_manager.add_message({"role": "user", "content": player_input})
 
+        # Collect narrative text from intermediate iterations (those with
+        # tool calls).  The LLM often emits meaningful narrative alongside
+        # tool calls (e.g. "You receive a map" before calling add_item).
+        # Without accumulation this text is silently lost because only the
+        # final, tool-free response is returned to the player.
+        intermediate_text_parts: list[str] = []
+
         for iteration in range(MAX_TOOL_ITERATIONS):
             api_kwargs = dict(
                 system=self.context_manager.build_system_prompt_blocks(),
@@ -169,6 +176,10 @@ class DungeonMaster:
                 len(api_kwargs["messages"]),
                 self.context_manager._estimate_tokens(),
             )
+
+            # Log full LLM I/O for post-session debugging
+            if logger.isEnabledFor(logging.DEBUG):
+                self._log_llm_request(api_kwargs, iteration)
 
             # Always use non-streaming first. This prevents the LLM's
             # intermediate reasoning (before tool calls) from leaking into
@@ -191,23 +202,40 @@ class DungeonMaster:
             # Track token usage
             self.token_stats.record(result.usage)
             logger.debug(
-                "API response: %d input tokens, %d output tokens, %d tool calls",
+                "API response: %d input tokens, %d output tokens, %d tool calls, text=%d chars",
                 result.usage.input_tokens,
                 result.usage.output_tokens,
                 len(result.tool_calls),
+                len(result.text or ""),
             )
+            if logger.isEnabledFor(logging.DEBUG):
+                self._log_llm_response(result, iteration)
 
             if not result.tool_calls:
                 self.context_manager.add_message(result.raw_assistant_message)
                 self.context_manager.compact_tool_pairs()
                 self.context_manager.compress_if_needed(self.backend)
-                text = result.text or "[The DM pauses thoughtfully...]"
+                final_text = result.text or ""
+
+                # Combine intermediate narrative with final response
+                if intermediate_text_parts:
+                    combined = "\n\n".join(intermediate_text_parts)
+                    if final_text:
+                        combined += "\n\n" + final_text
+                    text = combined
+                else:
+                    text = final_text or "[The DM pauses thoughtfully...]"
+
                 # Deliver final narration via callback for streaming display
                 if on_text_chunk and text:
                     self._deliver_text(text, on_text_chunk)
                 return text
 
-            # Tool-call turn — dispatch all calls, loop back for narration
+            # Tool-call turn — collect any narrative text emitted alongside tools
+            if result.text and result.text.strip():
+                intermediate_text_parts.append(result.text.strip())
+                logger.debug("Intermediate narrative (iter %d): %s", iteration, result.text[:200])
+
             self.context_manager.add_message(result.raw_assistant_message)
 
             tool_results = []
@@ -238,6 +266,45 @@ class DungeonMaster:
         # Exceeded max iterations — force a narrative response
         logger.warning("Tool loop hit max iterations (%d)", MAX_TOOL_ITERATIONS)
         return "[The DM gathers their thoughts after a flurry of actions and prepares to continue...]"
+
+    def _log_llm_request(self, api_kwargs: dict, iteration: int) -> None:
+        """Log the full LLM request payload for post-session debugging."""
+        system = api_kwargs.get("system", "")
+        if isinstance(system, list):
+            system_text = "\n\n".join(b.get("text", "") for b in system if isinstance(b, dict))
+        else:
+            system_text = system
+        logger.debug(
+            "=== LLM REQUEST (iteration %d) ===\n"
+            "--- SYSTEM PROMPT (%d chars) ---\n%s\n"
+            "--- MESSAGES (%d) ---\n%s\n"
+            "--- TOOLS: %d schemas ---\n"
+            "=== END REQUEST ===",
+            iteration,
+            len(system_text), system_text,
+            len(api_kwargs.get("messages", [])),
+            json.dumps(api_kwargs.get("messages", []), indent=2, default=str)[:50000],
+            len(api_kwargs.get("tools", [])),
+        )
+
+    @staticmethod
+    def _log_llm_response(result, iteration: int) -> None:
+        """Log the full LLM response for post-session debugging."""
+        logger.debug(
+            "=== LLM RESPONSE (iteration %d) ===\n"
+            "--- TEXT ---\n%s\n"
+            "--- TOOL CALLS (%d) ---\n%s\n"
+            "--- RAW ASSISTANT MESSAGE ---\n%s\n"
+            "=== END RESPONSE ===",
+            iteration,
+            result.text or "(empty)",
+            len(result.tool_calls),
+            json.dumps(
+                [{"name": tc.name, "input": tc.input} for tc in result.tool_calls],
+                indent=2, default=str,
+            ) if result.tool_calls else "(none)",
+            json.dumps(result.raw_assistant_message, indent=2, default=str)[:20000],
+        )
 
     @staticmethod
     def _deliver_text(
