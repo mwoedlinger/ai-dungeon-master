@@ -11,6 +11,25 @@ class NpcAttitude(BaseModel):
     notes: str = ""  # e.g. "Party helped rescue her son", "Intimidated into cooperation"
 
 
+class FactionReputation(BaseModel):
+    """Tracks party standing with a faction (-100 to +100)."""
+    score: int = 0  # -100 (hostile) to +100 (allied)
+    history: list[str] = []  # Brief log: "+10: saved their caravan", "-20: stole from temple"
+
+    @property
+    def tier(self) -> str:
+        if self.score >= 50:
+            return "allied"
+        elif self.score >= 20:
+            return "friendly"
+        elif self.score >= -20:
+            return "neutral"
+        elif self.score >= -50:
+            return "unfriendly"
+        else:
+            return "hostile"
+
+
 class JournalEntry(BaseModel):
     """A single recorded event — one-line summary of something significant."""
     event: str  # concise summary: "Elder Mora revealed her son is cursed"
@@ -18,6 +37,7 @@ class JournalEntry(BaseModel):
     involved_npcs: list[str] = []
     importance: Literal["major", "minor"] = "minor"
     turn: int = 0  # rough ordering
+    day: int = 0  # in-game day when this happened
 
 
 class WorldJournal(BaseModel):
@@ -36,8 +56,11 @@ class WorldJournal(BaseModel):
     npc_attitudes: dict[str, NpcAttitude] = {}  # npc_id -> attitude
     npc_summaries: dict[str, str] = {}  # npc_id -> prose summary of interactions
 
+    # --- Faction reputation ---
+    faction_reputations: dict[str, FactionReputation] = {}  # faction_id -> reputation
+
     # --- World flags for branching state ---
-    world_flags: dict[str, str] = {}  # e.g. {"bridge_destroyed": "true"}
+    world_flags: dict[str, str] = {}  # e.g. {"bridge_destroyed": "true", "orc_threat": "45"}
 
     # --- Internal bookkeeping ---
     turn_counter: int = 0
@@ -88,6 +111,21 @@ class WorldJournal(BaseModel):
 
     def get_flag(self, flag: str) -> str | None:
         return self.world_flags.get(flag)
+
+    def adjust_faction_reputation(
+        self, faction_id: str, delta: int, reason: str = ""
+    ) -> FactionReputation:
+        """Adjust a faction's reputation score. Clamped to [-100, +100]."""
+        rep = self.faction_reputations.get(faction_id, FactionReputation())
+        rep.score = max(-100, min(100, rep.score + delta))
+        if reason:
+            sign = "+" if delta >= 0 else ""
+            rep.history.append(f"{sign}{delta}: {reason}")
+            # Keep history manageable
+            if len(rep.history) > 20:
+                rep.history = rep.history[-20:]
+        self.faction_reputations[faction_id] = rep
+        return rep
 
     def needs_summary_refresh(self, threshold: int = 10) -> bool:
         """Whether enough new entries have accumulated to warrant re-summarization."""

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.campaign.campaign_db import CampaignData, NPCProfile
     from src.dm.backends.base import LLMBackend
+    from src.models.journal import WorldJournal
 
 
 class NPCDialogueSession:
@@ -18,12 +19,13 @@ class NPCDialogueSession:
         npc: "NPCProfile",
         backend: "LLMBackend",
         campaign: "CampaignData",
+        journal: "WorldJournal | None" = None,
     ):
         self.npc = npc
         self.backend = backend
         self.history: list[dict] = []
         self.turn_count = 0
-        self._system_prompt = self._build_npc_prompt(npc, campaign)
+        self._system_prompt = self._build_npc_prompt(npc, campaign, journal)
 
     def respond(self, player_input: str, context: str = "") -> str:
         """Get NPC response to player input."""
@@ -69,8 +71,12 @@ class NPCDialogueSession:
         return "\n".join(parts)
 
     @staticmethod
-    def _build_npc_prompt(npc: "NPCProfile", campaign: "CampaignData") -> str:
-        """Build information-gated prompt for the NPC."""
+    def _build_npc_prompt(
+        npc: "NPCProfile",
+        campaign: "CampaignData",
+        journal: "WorldJournal | None" = None,
+    ) -> str:
+        """Build information-gated prompt for the NPC, including prior interaction history."""
         lines = [
             f"You are {npc.name}, an NPC in a D&D 5e campaign.",
             f"Setting: {campaign.title} — {campaign.setting_overview[:200]}",
@@ -86,6 +92,37 @@ class NPCDialogueSession:
             "- React to the player's tone — if they're threatening, show fear or defiance as fits your character.",
             "- You can share what you know freely (your personality, goals, common knowledge).",
         ]
+
+        # Inject prior interaction history from journal
+        if journal is not None:
+            npc_id = npc.id or npc.name.lower().replace(" ", "_")
+            # Check for attitude changes
+            attitude = journal.npc_attitudes.get(npc_id)
+            if attitude and attitude.notes:
+                lines.extend([
+                    "",
+                    "## Your Current Feelings About the Party",
+                    f"**Disposition:** {attitude.disposition}",
+                    f"**Why:** {attitude.notes}",
+                ])
+            # Inject NPC summary if available
+            npc_summary = journal.npc_summaries.get(npc_id, "")
+            if npc_summary:
+                lines.extend([
+                    "",
+                    "## Prior Interactions with This Party",
+                    npc_summary,
+                ])
+            # Inject recent journal entries involving this NPC
+            entries = journal.get_npc_entries(npc_id, limit=10)
+            if entries:
+                lines.extend([
+                    "",
+                    "## Recent Events Involving You",
+                    "These events happened recently — you remember them:",
+                ])
+                for e in entries:
+                    lines.append(f"- {e.event}")
 
         if npc.secret:
             lines.extend([

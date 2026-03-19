@@ -21,12 +21,20 @@ class TreasureItem(BaseModel):
     found: bool = False  # set to True once players discover it
 
 
+class LocationConnection(BaseModel):
+    """A connection between two locations with optional travel metadata."""
+    target_id: str
+    travel_hours: float = 0  # 0 = instantaneous (same area); >0 = overland travel
+    description: str = ""  # e.g. "a winding forest trail", "the King's Road south"
+
+
 class Location(BaseModel):
     id: str
     name: str
     description: str
     parent: str | None = None
     connected_to: list[str] = []
+    connections: list[LocationConnection] = []  # detailed connection info (overrides connected_to)
     treasure: list[TreasureItem] = []
 
 
@@ -44,6 +52,8 @@ class Quest(BaseModel):
     objectives: list[str] = []
     completed_objectives: list[str] = []
     rewards: QuestReward | None = None
+    deadline_day: int | None = None  # Quest fails if not completed by this day
+    deadline_description: str = ""  # e.g. "before the full moon (Day 14)"
 
 
 class TimeState(BaseModel):

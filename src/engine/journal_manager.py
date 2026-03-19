@@ -148,6 +148,15 @@ class JournalManager:
                     lines.append(f"  {npc_sum}")
             parts.append("\n".join(lines))
 
+        # Faction reputations
+        if journal.faction_reputations:
+            lines = ["## Faction Standings"]
+            for fid, rep in journal.faction_reputations.items():
+                lines.append(f"- **{fid}**: {rep.score} ({rep.tier})")
+                if rep.history:
+                    lines.append(f"  Recent: {rep.history[-1]}")
+            parts.append("\n".join(lines))
+
         # World flags
         if journal.world_flags:
             lines = ["## World State Flags"]

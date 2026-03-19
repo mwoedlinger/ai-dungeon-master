@@ -440,6 +440,110 @@ def apply_healing(target: Character, amount: int) -> dict:
     return {"healed": actual_healed, "hp_now": target.hp, "revived": was_unconscious}
 
 
+# ---------------------------------------------------------------------------
+# Resurrection
+# ---------------------------------------------------------------------------
+
+# Resurrection spell tiers: material cost (gp), time limit description
+RESURRECTION_SPELLS: dict[str, dict] = {
+    "revivify": {
+        "spell_level": 3,
+        "material_cost": 300,
+        "time_limit_description": "within 1 minute of death",
+        "hp_restored": 1,
+    },
+    "raise_dead": {
+        "spell_level": 5,
+        "material_cost": 500,
+        "time_limit_description": "within 10 days of death",
+        "hp_restored": 1,
+        "penalties": ["-4 penalty to attack rolls, saves, and ability checks (fades over 4 long rests)"],
+    },
+    "resurrection": {
+        "spell_level": 7,
+        "material_cost": 1000,
+        "time_limit_description": "within 100 years of death",
+        "hp_restored": "full",
+    },
+    "true_resurrection": {
+        "spell_level": 9,
+        "material_cost": 25000,
+        "time_limit_description": "within 200 years of death",
+        "hp_restored": "full",
+    },
+}
+
+
+def resurrect_character(
+    target: Character,
+    spell_name: str,
+    caster: Character | None = None,
+) -> dict:
+    """Resurrect a dead character using the specified spell.
+
+    Validates that the character is dead, removes the dead/unconscious
+    conditions, restores HP, and resets death saves.
+    """
+    if "dead" not in target.conditions:
+        return {"success": False, "error": f"{target.name} is not dead."}
+
+    spell_key = spell_name.lower().replace(" ", "_")
+    spell_info = RESURRECTION_SPELLS.get(spell_key)
+    if spell_info is None:
+        return {
+            "success": False,
+            "error": f"Unknown resurrection spell: {spell_name!r}. "
+                     f"Valid: {list(RESURRECTION_SPELLS.keys())}",
+        }
+
+    # Check material cost on caster
+    if caster is not None:
+        cost = spell_info["material_cost"]
+        if caster.gold < cost:
+            return {
+                "success": False,
+                "error": f"{caster.name} needs {cost}gp in material components but has {caster.gold}gp.",
+            }
+        caster.gold -= cost
+
+    # Check spell slot on caster
+    if caster is not None:
+        level = spell_info["spell_level"]
+        slots = caster.spell_slots.get(level, 0)
+        if slots <= 0:
+            return {
+                "success": False,
+                "error": f"{caster.name} has no level-{level} spell slots remaining.",
+            }
+        caster.spell_slots[level] = slots - 1
+
+    # Perform resurrection
+    target.conditions = [c for c in target.conditions if c not in ("dead", "unconscious")]
+    target.death_saves = DeathSaves()
+
+    if spell_info["hp_restored"] == "full":
+        target.hp = target.max_hp
+    else:
+        target.hp = spell_info["hp_restored"]
+
+    result: dict = {
+        "success": True,
+        "character": target.name,
+        "spell": spell_name,
+        "hp_restored": target.hp,
+        "material_cost": spell_info["material_cost"],
+    }
+
+    if "penalties" in spell_info:
+        result["penalties"] = spell_info["penalties"]
+        result["note"] = (
+            f"{target.name} returns to life but suffers: "
+            + "; ".join(spell_info["penalties"])
+        )
+
+    return result
+
+
 def apply_condition(
     target: Character,
     condition: str,

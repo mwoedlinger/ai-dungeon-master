@@ -317,7 +317,7 @@ _STATE_TOOLS = [
     },
     {
         "name": "set_location",
-        "description": "Move the party to a new location. Returns location description.",
+        "description": "Instantly move the party to a new location (no travel time). Use travel_to_location instead for overland travel between distant locations. Use set_location only for entering sub-locations (tavern inside a village) or teleportation.",
         "input_schema": {
             "type": "object",
             "properties": {"location_id": {"type": "string"}},
@@ -456,12 +456,12 @@ _STATE_TOOLS = [
     },
     {
         "name": "set_world_flag",
-        "description": "Set a world state flag for tracking branching state. Use for binary or simple state changes that affect future events.",
+        "description": "Set a world state flag for tracking branching state. Supports binary flags ('bridge_destroyed': 'true'), numeric values ('orc_threat': '45'), and timestamped events ('bridge_collapsed_day': '7'). Use for any persistent world state that affects future events.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "flag": {"type": "string", "description": "Snake_case flag name: 'bridge_destroyed', 'moras_secret_revealed'"},
-                "value": {"type": "string", "default": "true"},
+                "flag": {"type": "string", "description": "Snake_case flag name: 'bridge_destroyed', 'orc_threat', 'town_prosperity'"},
+                "value": {"type": "string", "default": "true", "description": "Value to set. Use 'true'/'false' for binary, numeric strings for quantities, 'day_N' for timestamps."},
             },
             "required": ["flag"],
         },
@@ -571,7 +571,180 @@ _STATE_TOOLS = [
     },
 ]
 
-ALL_TOOL_SCHEMAS: list[dict] = _DICE_AND_CHECK_TOOLS + _COMBAT_TOOLS + _STATE_TOOLS
+_ECONOMY_TOOLS = [
+    {
+        "name": "buy_item",
+        "description": "Buy an item from a merchant. Deducts gold, adds to inventory. Use get_item_price to check prices first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "item_name": {"type": "string"},
+                "price": {"type": "integer", "description": "Price per item in gold pieces"},
+                "quantity": {"type": "integer", "default": 1},
+                "weight": {"type": "number", "default": 0, "description": "Weight per item in lbs"},
+                "description": {"type": "string", "default": ""},
+            },
+            "required": ["character_id", "item_name", "price"],
+        },
+    },
+    {
+        "name": "sell_item",
+        "description": "Sell an item to a merchant. Removes from inventory, adds gold. Typically items sell for half their purchase price.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "item_name": {"type": "string"},
+                "price": {"type": "integer", "description": "Sale price per item in gold pieces"},
+                "quantity": {"type": "integer", "default": 1},
+            },
+            "required": ["character_id", "item_name", "price"],
+        },
+    },
+    {
+        "name": "get_item_price",
+        "description": "Look up an item's standard price from the SRD equipment list. Returns None if item is not in the database.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "item_name": {"type": "string"},
+                "rarity": {"type": "string", "default": "common", "description": "For magic items: common, uncommon, rare, very_rare, legendary"},
+            },
+            "required": ["item_name"],
+        },
+    },
+    {
+        "name": "craft_item",
+        "description": "Attempt to craft an item. Requires tool proficiency, materials (gold), and time. Makes an INT check against a DC based on item rarity.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "item_name": {"type": "string"},
+                "rarity": {"type": "string", "enum": ["common", "uncommon", "rare", "very_rare", "legendary"], "default": "common"},
+                "tool_proficiency": {"type": "string", "description": "Required tool proficiency (e.g. 'Smith\\'s Tools', 'Herbalism Kit')"},
+                "material_cost": {"type": "integer", "description": "Gold cost for materials. Defaults to half the item value."},
+            },
+            "required": ["character_id", "item_name"],
+        },
+    },
+    {
+        "name": "downtime_training",
+        "description": "Train a new skill proficiency during downtime. Requires 250 days total and gold. Each call represents one chunk of training. Track progress over multiple sessions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "skill": {"type": "string", "description": "Skill to train (e.g. 'Perception', 'Stealth')"},
+                "days_spent": {"type": "integer", "description": "Number of days spent training this session"},
+                "gold_per_day": {"type": "integer", "default": 1},
+            },
+            "required": ["character_id", "skill", "days_spent"],
+        },
+    },
+    {
+        "name": "downtime_carousing",
+        "description": "Carousing downtime activity. Costs 10gp. Roll on a random event table — might make contacts, hear rumors, get into trouble, or find a windfall.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+            },
+            "required": ["character_id"],
+        },
+    },
+    {
+        "name": "downtime_recuperate",
+        "description": "Recuperate during downtime. Spends 3 days to remove a non-permanent condition and restore full HP.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+            },
+            "required": ["character_id"],
+        },
+    },
+]
+
+_DEATH_AND_CONTINUITY_TOOLS = [
+    {
+        "name": "resurrect_character",
+        "description": "Resurrect a dead character using a resurrection spell (Revivify, Raise Dead, Resurrection, True Resurrection). Requires appropriate spell slot and material components (gold). Revivify: 300gp, within 1 minute. Raise Dead: 500gp, within 10 days. Resurrection: 1000gp. True Resurrection: 25000gp.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string", "description": "ID of the dead character to resurrect"},
+                "spell_name": {"type": "string", "enum": ["revivify", "raise_dead", "resurrection", "true_resurrection"]},
+                "caster_id": {"type": "string", "description": "ID of the character casting the spell (for slot/gold deduction). Omit for NPC/scroll casting."},
+            },
+            "required": ["character_id", "spell_name"],
+        },
+    },
+    {
+        "name": "npc_heal",
+        "description": "An allied NPC heals or stabilizes a player character during combat. Use when a friendly NPC (e.g. a cleric ally) would logically intervene to help a downed PC.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target_id": {"type": "string", "description": "ID of the character to heal"},
+                "amount": {"type": "integer", "description": "HP to restore"},
+                "npc_name": {"type": "string", "description": "Name of the NPC providing the healing"},
+                "stabilize_only": {"type": "boolean", "default": False, "description": "If true, just stabilize (0 HP but not dying) without healing"},
+            },
+            "required": ["target_id", "npc_name"],
+        },
+    },
+]
+
+_REPUTATION_TOOLS = [
+    {
+        "name": "adjust_faction_reputation",
+        "description": "Adjust the party's reputation with a faction. Score ranges from -100 (hostile) to +100 (allied). Tiers: hostile (<-50), unfriendly (-50 to -20), neutral (-20 to +20), friendly (+20 to +50), allied (>+50).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "faction_id": {"type": "string", "description": "Faction identifier"},
+                "delta": {"type": "integer", "description": "Change amount (positive = improve, negative = worsen). Typical: ±5 minor, ±10 significant, ±25 major."},
+                "reason": {"type": "string", "description": "Brief reason: 'saved their caravan' or 'stole from the temple'"},
+            },
+            "required": ["faction_id", "delta", "reason"],
+        },
+    },
+    {
+        "name": "get_faction_reputation",
+        "description": "Check the party's current reputation with a faction.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "faction_id": {"type": "string"},
+            },
+            "required": ["faction_id"],
+        },
+    },
+]
+
+_TRAVEL_TOOLS = [
+    {
+        "name": "travel_to_location",
+        "description": "Travel from the current location to a connected destination. Calculates travel time, advances the clock, and flags random encounter eligibility. Use instead of set_location when travel time should pass.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "destination_id": {"type": "string", "description": "Target location ID"},
+                "pace": {"type": "string", "enum": ["normal", "fast", "slow"], "default": "normal",
+                         "description": "Travel pace: fast (×0.75 time, -5 passive Perception), normal, slow (×1.5 time, can stealth)"},
+            },
+            "required": ["destination_id"],
+        },
+    },
+]
+
+ALL_TOOL_SCHEMAS: list[dict] = (
+    _DICE_AND_CHECK_TOOLS + _COMBAT_TOOLS + _STATE_TOOLS
+    + _ECONOMY_TOOLS + _DEATH_AND_CONTINUITY_TOOLS
+    + _REPUTATION_TOOLS + _TRAVEL_TOOLS
+)
 
 # Which tools consume action economy resources
 ACTION_COSTS: dict[str, str] = {
@@ -991,7 +1164,10 @@ class ToolDispatcher:
                 if npc is None:
                     return {"success": False, "error": f"NPC {npc_id!r} not found."}
                 from src.dm.npc_dialogue import NPCDialogueSession
-                session = NPCDialogueSession(npc=npc, backend=self.backend, campaign=gs.campaign)
+                session = NPCDialogueSession(
+                    npc=npc, backend=self.backend, campaign=gs.campaign,
+                    journal=gs.journal,
+                )
                 self._npc_sessions[npc_id] = session
                 response = session.respond(
                     inputs["player_input"],
@@ -1111,6 +1287,172 @@ class ToolDispatcher:
                             "slots_remaining": 3 - len(char.attuned_items),
                         }
                 return {"success": False, "error": f"{char.name} is not attuned to {item_name!r}."}
+
+            # --- Economy ---
+            case "buy_item":
+                from src.engine.economy import buy_item as _buy_item
+                char = gs.get_character(inputs["character_id"])
+                return _buy_item(
+                    char, inputs["item_name"], inputs["price"],
+                    quantity=inputs.get("quantity", 1),
+                    weight=inputs.get("weight", 0.0),
+                    description=inputs.get("description", ""),
+                )
+
+            case "sell_item":
+                from src.engine.economy import sell_item as _sell_item
+                char = gs.get_character(inputs["character_id"])
+                return _sell_item(
+                    char, inputs["item_name"], inputs["price"],
+                    quantity=inputs.get("quantity", 1),
+                )
+
+            case "get_item_price":
+                from src.engine.economy import get_item_price as _get_price
+                price = _get_price(inputs["item_name"], inputs.get("rarity", "common"))
+                if price is not None:
+                    return {"success": True, "item": inputs["item_name"], "price_gp": price}
+                return {
+                    "success": True,
+                    "item": inputs["item_name"],
+                    "price_gp": None,
+                    "note": "Item not in price database. Set a fair price based on rarity and utility.",
+                }
+
+            case "craft_item":
+                from src.engine.economy import craft_item as _craft_item
+                char = gs.get_character(inputs["character_id"])
+                return _craft_item(
+                    char, inputs["item_name"],
+                    rarity=inputs.get("rarity", "common"),
+                    tool_proficiency=inputs.get("tool_proficiency"),
+                    material_cost=inputs.get("material_cost"),
+                )
+
+            case "downtime_training":
+                from src.engine.economy import downtime_training as _training
+                char = gs.get_character(inputs["character_id"])
+                return _training(
+                    char, inputs["skill"], inputs["days_spent"],
+                    gold_per_day=inputs.get("gold_per_day", 1),
+                )
+
+            case "downtime_carousing":
+                from src.engine.economy import downtime_carousing as _carousing
+                char = gs.get_character(inputs["character_id"])
+                return _carousing(char)
+
+            case "downtime_recuperate":
+                from src.engine.economy import downtime_recuperate as _recuperate
+                char = gs.get_character(inputs["character_id"])
+                return _recuperate(char)
+
+            # --- Death & Continuity ---
+            case "resurrect_character":
+                from src.engine.rules import resurrect_character as _resurrect
+                target = gs.get_character(inputs["character_id"])
+                caster = gs.get_character(inputs["caster_id"]) if inputs.get("caster_id") else None
+                return _resurrect(target, inputs["spell_name"], caster=caster)
+
+            case "npc_heal":
+                target = gs.get_character(inputs["target_id"])
+                npc_name = inputs["npc_name"]
+                if inputs.get("stabilize_only"):
+                    # Stabilize: set to 0 HP, remove unconscious, reset death saves
+                    if "unconscious" in target.conditions:
+                        target.death_saves = type(target.death_saves)()
+                        return {
+                            "success": True,
+                            "npc": npc_name,
+                            "target": target.name,
+                            "stabilized": True,
+                            "note": f"{npc_name} stabilizes {target.name}.",
+                        }
+                    return {"success": False, "error": f"{target.name} is not unconscious."}
+                amount = inputs.get("amount", 0)
+                if amount <= 0:
+                    return {"success": False, "error": "Healing amount must be positive."}
+                heal_result = apply_healing(target, amount)
+                return {
+                    "success": True,
+                    "npc": npc_name,
+                    "target": target.name,
+                    **heal_result,
+                }
+
+            # --- Faction Reputation ---
+            case "adjust_faction_reputation":
+                if self._journal_manager:
+                    rep = gs.journal.adjust_faction_reputation(
+                        inputs["faction_id"], inputs["delta"], inputs.get("reason", ""),
+                    )
+                    return {
+                        "success": True,
+                        "faction_id": inputs["faction_id"],
+                        "new_score": rep.score,
+                        "tier": rep.tier,
+                        "delta": inputs["delta"],
+                        "reason": inputs.get("reason", ""),
+                    }
+                # Fallback: directly adjust on journal
+                rep = gs.journal.adjust_faction_reputation(
+                    inputs["faction_id"], inputs["delta"], inputs.get("reason", ""),
+                )
+                return {
+                    "success": True,
+                    "faction_id": inputs["faction_id"],
+                    "new_score": rep.score,
+                    "tier": rep.tier,
+                }
+
+            case "get_faction_reputation":
+                faction_id = inputs["faction_id"]
+                rep = gs.journal.faction_reputations.get(faction_id)
+                if rep is None:
+                    return {
+                        "success": True,
+                        "faction_id": faction_id,
+                        "score": 0,
+                        "tier": "neutral",
+                        "history": [],
+                        "note": "No prior interactions recorded.",
+                    }
+                return {
+                    "success": True,
+                    "faction_id": faction_id,
+                    "score": rep.score,
+                    "tier": rep.tier,
+                    "history": rep.history[-10:],
+                }
+
+            # --- Travel ---
+            case "travel_to_location":
+                from src.engine.time_tracking import advance_time as _advance_time
+                from src.engine.time_tracking import travel_time as _travel_time
+                travel_info = _travel_time(gs, inputs["destination_id"])
+                if not travel_info["success"]:
+                    return travel_info
+                # Apply pace modifier
+                hours = travel_info["travel_hours"]
+                pace = inputs.get("pace", "normal")
+                if pace == "fast":
+                    hours *= 0.75
+                elif pace == "slow":
+                    hours *= 1.5
+                # Advance time
+                full_hours = int(hours)
+                extra_minutes = int((hours - full_hours) * 60)
+                if full_hours > 0 or extra_minutes > 0:
+                    time_result = _advance_time(
+                        gs.world.time, hours=full_hours, minutes=extra_minutes, game_state=gs,
+                    )
+                    travel_info["time_elapsed"] = time_result
+                # Move to destination
+                loc_result = gs.set_location(inputs["destination_id"])
+                travel_info.update(loc_result)
+                travel_info["pace"] = pace
+                self._npc_sessions.clear()
+                return travel_info
 
             case _:
                 return {"success": False, "error": f"Unknown tool: {tool_name!r}"}
