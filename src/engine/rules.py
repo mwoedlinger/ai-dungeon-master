@@ -590,6 +590,57 @@ def resurrect_character(
     return result
 
 
+# ---------------------------------------------------------------------------
+# Class abilities: Second Wind, Lay on Hands
+# ---------------------------------------------------------------------------
+
+
+def use_second_wind(char: Character) -> dict:
+    """Fighter's Second Wind: heal 1d10 + fighter level as bonus action."""
+    charges = char.class_resources.get("second_wind", 0)
+    if charges <= 0:
+        return {"success": False, "error": f"{char.name} has no Second Wind uses remaining."}
+    char.class_resources["second_wind"] = charges - 1
+    roll = roll_dice("1d10")
+    heal_amount = roll.total + char.level
+    old_hp = char.hp
+    char.hp = min(char.max_hp, char.hp + heal_amount)
+    actual_healed = char.hp - old_hp
+    return {
+        "success": True,
+        "character": char.name,
+        "roll": roll.total,
+        "level_bonus": char.level,
+        "healed": actual_healed,
+        "hp_now": char.hp,
+        "remaining_uses": char.class_resources["second_wind"],
+    }
+
+
+def use_lay_on_hands(char: Character, target: Character, amount: int) -> dict:
+    """Paladin's Lay on Hands: heal target using pool points."""
+    pool = char.class_resources.get("lay_on_hands", 0)
+    if pool <= 0:
+        return {"success": False, "error": f"{char.name}'s Lay on Hands pool is empty."}
+    if amount > pool:
+        return {
+            "success": False,
+            "error": f"{char.name} only has {pool} HP in Lay on Hands pool (requested {amount}).",
+        }
+    if amount <= 0:
+        return {"success": False, "error": "Healing amount must be positive."}
+    char.class_resources["lay_on_hands"] = pool - amount
+    heal_result = apply_healing(target, amount)
+    return {
+        "success": True,
+        "character": char.name,
+        "target": target.name,
+        "pool_spent": amount,
+        "pool_remaining": char.class_resources["lay_on_hands"],
+        **heal_result,
+    }
+
+
 def apply_condition(
     target: Character,
     condition: str,

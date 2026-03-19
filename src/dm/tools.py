@@ -16,6 +16,8 @@ from src.engine.rules import (
     apply_healing,
     remove_condition,
     saving_throw,
+    use_lay_on_hands,
+    use_second_wind,
 )
 from src.engine.spells import resolve_spell
 from src.log.event_log import EventLog
@@ -368,6 +370,28 @@ _STATE_TOOLS = [
             "type": "object",
             "properties": {"character_id": {"type": "string"}},
             "required": ["character_id"],
+        },
+    },
+    {
+        "name": "use_second_wind",
+        "description": "Use Second Wind (Fighter). Heal 1d10 + fighter level HP as a bonus action. One use per short rest.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"character_id": {"type": "string"}},
+            "required": ["character_id"],
+        },
+    },
+    {
+        "name": "use_lay_on_hands",
+        "description": "Use Lay on Hands (Paladin). Touch a creature and heal HP from your healing pool (level × 5 HP total, restored on long rest).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string", "description": "The Paladin using Lay on Hands"},
+                "target_id": {"type": "string", "description": "Character to heal"},
+                "amount": {"type": "integer", "description": "HP to restore from pool"},
+            },
+            "required": ["character_id", "target_id", "amount"],
         },
     },
     {
@@ -812,6 +836,8 @@ ACTION_COSTS: dict[str, str] = {
     "cast_spell": "variable",  # depends on spell.casting_time
     "apply_condition": "action",
     "death_save": "free",  # death saves happen outside normal turns
+    "use_second_wind": "bonus_action",
+    "use_lay_on_hands": "action",
 }
 
 # Tools that require combat to be active
@@ -865,6 +891,27 @@ class ToolDispatcher:
         except Exception as e:
             logger.error("Tool dispatch error: %s(%s) — %s: %s", tool_name, inputs, type(e).__name__, e, exc_info=True)
             return {"success": False, "error": f"Engine error: {type(e).__name__}: {e}"}
+
+    @staticmethod
+    def _is_sneak_attack_eligible(attacker, weapon, has_advantage: bool, gs: "GameState") -> bool:
+        """Check if a Rogue's Sneak Attack can trigger (simplified 5e).
+
+        Requires finesse or ranged weapon. Triggers with advantage, or when
+        another non-unconscious ally is in combat (simplified adjacency).
+        """
+        props = [p.lower() for p in weapon.properties]
+        if "finesse" not in props and "ranged" not in props:
+            return False
+        if has_advantage:
+            return True
+        # Simplified adjacency: any other living PC in combat
+        if gs.combat.active:
+            for pid in gs.player_character_ids:
+                if pid != attacker.id:
+                    ally = gs.characters.get(pid)
+                    if ally and ally.hp > 0 and "unconscious" not in ally.conditions:
+                        return True
+        return False
 
     def _validate_combat_action(self, tool_name: str, inputs: dict) -> dict:
         combat = self.game_state.combat
@@ -954,9 +1001,10 @@ class ToolDispatcher:
                 if weapon is None:
                     return {"success": False, "error": f"{attacker.name} does not have a weapon named {inputs['weapon_name']!r}."}
                 from src.engine.rules import attack_roll as _attack_roll
+                has_advantage = inputs.get("advantage", False)
                 atk = _attack_roll(
                     attacker, target, weapon,
-                    advantage=inputs.get("advantage", False),
+                    advantage=has_advantage,
                     disadvantage=inputs.get("disadvantage", False),
                 )
                 result: dict = {
@@ -972,10 +1020,26 @@ class ToolDispatcher:
                     "is_nat1": atk.is_nat1,
                 }
                 if atk.hits and atk.damage is not None:
-                    dmg_result = apply_damage(target, atk.damage, atk.damage_type or "slashing")
-                    result["damage"] = atk.damage
+                    total_damage = atk.damage
+                    sneak_info = None
+                    # Sneak Attack (Rogue): extra damage with finesse/ranged weapons
+                    sneak_dice = attacker.class_resources.get("sneak_attack_dice", 0)
+                    if sneak_dice > 0 and self._is_sneak_attack_eligible(
+                        attacker, weapon, has_advantage, gs
+                    ):
+                        from src.engine.dice import roll_dice as _roll_sneak
+                        sneak_roll = _roll_sneak(f"{sneak_dice}d6")
+                        sneak_dmg = sneak_roll.total
+                        if atk.is_crit:
+                            sneak_dmg += _roll_sneak(f"{sneak_dice}d6").total
+                        total_damage += sneak_dmg
+                        sneak_info = {"dice": f"{sneak_dice}d6", "damage": sneak_dmg}
+                    dmg_result = apply_damage(target, total_damage, atk.damage_type or "slashing")
+                    result["damage"] = total_damage
                     result["damage_type"] = atk.damage_type
                     result["hp_remaining"] = target.hp
+                    if sneak_info:
+                        result["sneak_attack"] = sneak_info
                     result.update({k: v for k, v in dmg_result.items() if k not in result})
                 # Consume action
                 if gs.combat.active:
@@ -987,6 +1051,16 @@ class ToolDispatcher:
                 spell = get_spell(inputs["spell_name"])
                 if spell is None:
                     return {"success": False, "error": f"Spell {inputs['spell_name']!r} not found in SRD data."}
+                # Validate caster knows this spell (skip for monsters / characters with empty spell list)
+                if caster.is_player and caster.known_spells:
+                    spell_name_lower = inputs["spell_name"].lower()
+                    known_lower = [s.lower() for s in caster.known_spells]
+                    if spell_name_lower not in known_lower:
+                        return {
+                            "success": False,
+                            "error": f"{caster.name} does not know {inputs['spell_name']!r}. "
+                                     f"Known spells: {', '.join(caster.known_spells)}",
+                        }
                 targets = [gs.get_character(tid) for tid in inputs.get("target_ids", [])]
                 cast_level = inputs.get("spell_level", spell.level)
                 result = resolve_spell(gs, spell, caster, targets, cast_level)
@@ -1152,6 +1226,25 @@ class ToolDispatcher:
                     "remaining_charges": char.class_resources["action_surge"],
                     "note": f"{char.name} surges with renewed vigor — an additional action this turn!",
                 }
+
+            case "use_second_wind":
+                char = gs.get_character(inputs["character_id"])
+                if char.class_name != "Fighter":
+                    return {"success": False, "error": "Only Fighters can use Second Wind."}
+                result = use_second_wind(char)
+                if result["success"] and gs.combat.active and inputs["character_id"] in gs.combat.combatants:
+                    gs.combat.consume_bonus_action(inputs["character_id"])
+                return result
+
+            case "use_lay_on_hands":
+                char = gs.get_character(inputs["character_id"])
+                if char.class_name != "Paladin":
+                    return {"success": False, "error": "Only Paladins can use Lay on Hands."}
+                target = gs.get_character(inputs["target_id"])
+                result = use_lay_on_hands(char, target, inputs["amount"])
+                if result["success"] and gs.combat.active:
+                    gs.combat.consume_action(inputs["character_id"])
+                return result
 
             case "learn_spell":
                 char = gs.get_character(inputs["character_id"])

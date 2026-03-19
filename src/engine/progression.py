@@ -657,6 +657,37 @@ CLASS_TEMPLATES: dict[str, dict] = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# Class resource maximums (for rest recovery)
+# ---------------------------------------------------------------------------
+
+# Resources that restore on short rest (everything restores on long rest)
+SHORT_REST_RESOURCES = frozenset({
+    "second_wind", "action_surge", "channel_divinity", "ki", "wild_shape",
+    "superiority_dice",
+})
+
+
+def get_max_class_resources(char: Character) -> dict[str, int]:
+    """Compute maximum values for all class resources at the character's current level.
+
+    Traverses CLASS_FEATURES up to the character's level, evaluating scaling
+    formulas and collecting fixed-value resources. Used by rest mechanics to
+    restore spent resources.
+    """
+    maxes: dict[str, int] = {}
+    features = CLASS_FEATURES.get(char.class_name, {})
+    for level in range(1, char.level + 1):
+        for feat in features.get(level, []):
+            if feat["type"] == "resource":
+                maxes[feat["resource"]] = feat["value"]
+            elif feat["type"] == "scaling":
+                maxes[feat["resource"]] = _eval_scaling(feat["formula"], char.level, char)
+            elif feat["type"] == "flag":
+                maxes[feat["flag"]] = 1
+    return maxes
+
+
 RACES = ["Human", "Elf", "Dwarf", "Halfling", "Half-Elf", "Half-Orc", "Gnome", "Tiefling", "Dragonborn"]
 
 ALIGNMENTS = [
