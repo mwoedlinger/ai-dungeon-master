@@ -16,6 +16,7 @@ class OllamaBackend(LLMBackend):
             self._client = openai.OpenAI(
                 base_url=_OLLAMA_BASE_URL,
                 api_key="ollama",
+                timeout=120.0,
             )
         except ImportError as e:
             raise ImportError(

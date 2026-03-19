@@ -195,8 +195,22 @@ def ability_check(
     roll = roll_dice("1d20", advantage=advantage, disadvantage=disadvantage)
     raw = roll.kept_roll if roll.kept_roll is not None else roll.individual_rolls[0]
     modifier = char.ability_scores.modifier(ability)
-    if skill and skill in char.skill_proficiencies:
-        modifier += char.proficiency_bonus
+
+    is_proficient = skill is not None and skill in char.skill_proficiencies
+    if is_proficient:
+        # Expertise: double proficiency bonus for chosen skills (Rogue 1, Bard 3)
+        if skill in getattr(char, "expertise_skills", []):
+            modifier += char.proficiency_bonus * 2
+        else:
+            modifier += char.proficiency_bonus
+    elif char.class_name == "Bard" and char.level >= 2:
+        # Jack of All Trades: add half proficiency to non-proficient checks
+        modifier += char.proficiency_bonus // 2
+
+    # Reliable Talent: Rogue 11+ treats d20 < 10 as 10 for proficient checks
+    if is_proficient and char.class_name == "Rogue" and char.level >= 11:
+        raw = max(raw, 10)
+
     total = raw + modifier
     return CheckResult(
         roll=roll,
@@ -360,7 +374,14 @@ def encumbrance_status(char: Character) -> dict:
 
 
 def apply_damage(target: Character, amount: int, damage_type: str) -> dict:
-    """Apply damage accounting for temp HP, resistances, unconsciousness."""
+    """Apply damage accounting for temp HP, resistances, unconsciousness.
+
+    HP is always clamped to 0 (no negatives). Unconscious/dead conditions
+    are applied consistently regardless of the damage path.
+    """
+    if amount < 0:
+        return {"success": False, "error": "Damage amount must be non-negative."}
+
     actual = amount
 
     if isinstance(target, Monster):
@@ -386,10 +407,22 @@ def apply_damage(target: Character, amount: int, damage_type: str) -> dict:
                 target.concentration = None
                 result["concentration_broken"] = True
         else:
+            if "dead" not in target.conditions:
+                target.conditions.append("dead")
             result["dead"] = True
     elif target.concentration and target.is_player:
-        result["concentration_check_required"] = True
-        result["concentration_dc"] = max(10, amount // 2)
+        # Auto-roll concentration save (CON save, DC = max(10, damage/2))
+        con_dc = max(10, amount // 2)
+        con_save = saving_throw(target, "CON", con_dc)
+        result["concentration_check"] = {
+            "dc": con_dc,
+            "roll": con_save.total,
+            "success": con_save.success,
+        }
+        if not con_save.success:
+            result["concentration_broken"] = True
+            result["concentration_dropped"] = target.concentration
+            target.concentration = None
 
     return result
 
@@ -407,18 +440,48 @@ def apply_healing(target: Character, amount: int) -> dict:
     return {"healed": actual_healed, "hp_now": target.hp, "revived": was_unconscious}
 
 
-def apply_condition(target: Character, condition: str, duration_rounds: int | None = None) -> dict:
-    """Apply a condition to a character. Respects monster condition immunities."""
+def apply_condition(
+    target: Character,
+    condition: str,
+    duration_rounds: int | None = None,
+    combat_state: object | None = None,
+) -> dict:
+    """Apply a condition to a character. Respects monster condition immunities.
+
+    If *combat_state* is provided and has a combatant for this character,
+    the duration is also recorded in condition_durations to stay in sync.
+    """
     if isinstance(target, Monster) and condition in target.condition_immunities:
         return {"applied": None, "target": target.name, "note": f"immune to {condition}"}
     if condition not in target.conditions:
         target.conditions.append(condition)
+    # Sync condition_durations on the combatant if in combat
+    if combat_state is not None:
+        combatants = getattr(combat_state, "combatants", {})
+        cid = getattr(target, "id", None) or target.name
+        combatant = combatants.get(cid)
+        if combatant is not None:
+            combatant.condition_durations[condition] = duration_rounds
     return {"applied": condition, "target": target.name, "duration_rounds": duration_rounds}
 
 
-def remove_condition(target: Character, condition: str) -> dict:
-    """Remove a condition from a character."""
+def remove_condition(
+    target: Character,
+    condition: str,
+    combat_state: object | None = None,
+) -> dict:
+    """Remove a condition from a character.
+
+    Also cleans up condition_durations on the combatant to prevent desync.
+    """
     if condition in target.conditions:
         target.conditions.remove(condition)
+        # Sync: remove from combatant's duration tracker too
+        if combat_state is not None:
+            combatants = getattr(combat_state, "combatants", {})
+            cid = getattr(target, "id", None) or target.name
+            combatant = combatants.get(cid)
+            if combatant is not None:
+                combatant.condition_durations.pop(condition, None)
         return {"removed": condition, "target": target.name}
     return {"removed": None, "target": target.name, "note": f"{target.name} did not have condition {condition!r}"}

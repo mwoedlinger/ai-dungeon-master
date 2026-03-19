@@ -77,6 +77,7 @@ class Character(BaseModel):
 
     proficiency_bonus: int
     skill_proficiencies: list[str] = []
+    expertise_skills: list[str] = []  # Skills with doubled proficiency bonus
     weapon_proficiencies: list[str] = []
     armor_proficiencies: list[str] = []
     saving_throw_proficiencies: list[str] = []

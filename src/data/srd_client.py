@@ -235,6 +235,29 @@ def _api_monster_to_internal(data: dict) -> dict:
 
     monster_type = data.get("type", "monster").capitalize()
 
+    # Parse legendary actions
+    legendary_actions = []
+    for la in data.get("legendary_actions", []):
+        legendary_actions.append({
+            "name": la.get("name", "Unknown"),
+            "description": la.get("desc", ""),
+            "cost": 1,  # default cost; multi-cost actions noted in description
+        })
+    # Standard: 3 legendary actions per round if any are defined
+    la_per_round = 3 if legendary_actions else 0
+
+    # Parse legendary resistances from special abilities
+    legendary_resistances = 0
+    for ability in data.get("special_abilities", []):
+        if "legendary resistance" in ability.get("name", "").lower():
+            # Typically "Legendary Resistance (3/Day)" — extract the number
+            lr_match = re.search(r"\((\d+)/[Dd]ay\)", ability.get("name", ""))
+            legendary_resistances = int(lr_match.group(1)) if lr_match else 3
+
+    # Parse lair actions
+    lair_actions = []
+    has_lair = bool(data.get("lair_actions"))
+
     return {
         "id": index,
         "name": data.get("name", index),
@@ -282,6 +305,13 @@ def _api_monster_to_internal(data: dict) -> dict:
         "damage_resistances": damage_resistances,
         "damage_immunities": damage_immunities,
         "condition_immunities": condition_immunities,
+        "legendary_actions": legendary_actions,
+        "legendary_actions_per_round": la_per_round,
+        "legendary_actions_remaining": la_per_round,
+        "legendary_resistances": legendary_resistances,
+        "legendary_resistances_remaining": legendary_resistances,
+        "lair_actions": lair_actions,
+        "has_lair": has_lair,
     }
 
 
@@ -308,6 +338,33 @@ def _infer_resolution(data: dict) -> str:
     if any(kw in desc_lower for kw in ["bonus to", "speed is doubled", "advantage on", "invisible", "teleport"]):
         return "buff"
     return "narrative"
+
+
+# Manual overrides for spells that need specific resolution not inferable from API data.
+# Keyed by spell name exactly as it appears in the SRD.
+_SPELL_OVERRIDES: dict[str, dict] = {
+    # Level 4
+    "Banishment": {"resolution": "save_effect", "save_ability": "CHA", "condition_effect": "banished"},
+    "Greater Invisibility": {"resolution": "buff", "description": "Target is invisible. Attacks against it have disadvantage; its attacks have advantage."},
+    "Dimension Door": {"resolution": "buff", "description": "Teleport up to 500 feet to a visible or described location."},
+    # Level 5
+    "Wall of Force": {"resolution": "buff", "description": "An invisible wall of force springs into existence. Nothing can physically pass through it."},
+    "Hold Monster": {"resolution": "save_effect", "save_ability": "WIS", "condition_effect": "paralyzed"},
+    # Level 6
+    "Heal": {"resolution": "healing"},
+    # Level 7
+    "Teleport": {"resolution": "buff", "description": "Teleport yourself and up to 8 willing creatures to a destination you're familiar with."},
+    "Forcecage": {"resolution": "buff", "description": "An immobile, invisible, cube-shaped prison of force springs into existence around a point."},
+    # Level 8
+    "Power Word Stun": {"resolution": "save_effect", "condition_effect": "stunned",
+                         "description": "Stun a creature with 150 HP or fewer (no save). It makes CON saves at end of each turn to end."},
+    # Level 9
+    "Power Word Kill": {"resolution": "auto_damage", "damage_dice": "0", "damage_type": "force",
+                         "description": "Kill a creature with 100 HP or fewer instantly. No save."},
+    "Wish": {"resolution": "buff", "description": "The mightiest spell a mortal can cast. Duplicate any 8th-level or lower spell, or create another effect."},
+    "Meteor Swarm": {"resolution": "save_damage", "save_ability": "DEX", "damage_dice": "40d6",
+                      "damage_type": "fire"},
+}
 
 
 def _api_spell_to_internal(data: dict) -> SpellData:
@@ -400,8 +457,67 @@ def _api_spell_to_internal(data: dict) -> SpellData:
                 condition_effect = cond
                 break
 
+    # Cantrip scaling — extract damage_at_character_level
+    cantrip_scaling = None
+    if level == 0:
+        char_dmg = (dmg.get("damage_at_character_level") or {}) if dmg else {}
+        if char_dmg:
+            cantrip_scaling = {int(k): v for k, v in char_dmg.items()}
+
+    # Save negates (0 damage on success, e.g. Disintegrate)
+    save_negates = False
+    dc_success = dc_info.get("dc_success", "half") if dc_info else "half"
+    if dc_success == "none":
+        save_negates = True
+
+    # Flat healing (e.g. Heal: 70hp, not dice-based)
+    flat_healing = None
+    if healing_dice and healing_dice.isdigit():
+        flat_healing = int(healing_dice)
+        healing_dice = None
+
+    # Upcast pattern — infer from higher_level text
+    upcast_pattern = "damage"
+    hl_text = " ".join(data.get("higher_level", [])).lower()
+    if "additional creature" in hl_text or "additional target" in hl_text or "one more creature" in hl_text:
+        upcast_pattern = "targets"
+    elif "duration" in hl_text and ("hour" in hl_text or "minute" in hl_text):
+        upcast_pattern = "duration"
+    elif flat_healing is not None and ("increases by" in hl_text or "amount of healing" in hl_text):
+        upcast_pattern = "flat_healing"
+
+    # Upcast bonus for flat healing spells (e.g., Heal: +10 per level)
+    if flat_healing is not None and upcast_bonus is None and heal_levels:
+        sorted_keys = sorted(heal_levels.keys(), key=int)
+        if len(sorted_keys) >= 2:
+            v1 = heal_levels[sorted_keys[0]]
+            v2 = heal_levels[sorted_keys[1]]
+            if v1.isdigit() and v2.isdigit():
+                diff = int(v2) - int(v1)
+                if diff > 0:
+                    upcast_bonus = f"+{diff} per level"
+                    upcast_pattern = "flat_healing"
+
+    # Apply manual overrides for specific spells
+    spell_name = data.get("name", "Unknown")
+    if spell_name in _SPELL_OVERRIDES:
+        override = _SPELL_OVERRIDES[spell_name]
+        resolution = override.get("resolution", resolution)
+        if "damage_dice" in override:
+            damage_dice = override["damage_dice"]
+        if "damage_type" in override:
+            damage_type = override["damage_type"]
+        if "save_ability" in override:
+            save_ability = override["save_ability"]
+        if "condition_effect" in override:
+            condition_effect = override["condition_effect"]
+        if "save_negates" in override:
+            save_negates = override["save_negates"]
+        if "description" in override:
+            buff_effect = override["description"]
+
     return SpellData(
-        name=data.get("name", "Unknown"),
+        name=spell_name,
         level=level,
         resolution=resolution,
         casting_time=casting_time,
@@ -409,10 +525,14 @@ def _api_spell_to_internal(data: dict) -> SpellData:
         damage_dice=damage_dice,
         damage_type=damage_type,
         save_ability=save_ability,
+        save_negates=save_negates,
         healing_dice=healing_dice,
+        flat_healing=flat_healing,
         buff_effect=buff_effect,
         duration_rounds=duration_rounds,
         upcast_bonus=upcast_bonus,
+        upcast_pattern=upcast_pattern,
+        cantrip_scaling=cantrip_scaling,
         description=" ".join(data.get("desc", [])),
         aoe=aoe,
         condition_effect=condition_effect,

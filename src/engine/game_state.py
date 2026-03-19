@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import logging
+import shutil
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from src.engine.progression import apply_level_up
@@ -11,6 +14,11 @@ from src.models.combat import CombatState
 from src.models.journal import WorldJournal
 from src.models.monster import Monster
 from src.models.world import WorldState
+
+logger = logging.getLogger(__name__)
+
+# Bump when the save schema changes; add migration functions below.
+SAVE_VERSION = 1
 
 
 @dataclass
@@ -168,32 +176,92 @@ class GameState:
         return {"success": True, "results": results}
 
     def save(self, path: str | Path) -> None:
+        """Persist game state with atomic write and backup rotation.
+
+        Writes to a temp file first, then renames — a crash mid-write
+        never corrupts the existing save. The previous save is kept as .bak.
+        """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
+
         data = {
+            "version": SAVE_VERSION,
             "player_character_ids": self.player_character_ids,
             "characters": {
-                cid: char.model_dump()
+                cid: (char.model_dump() if not isinstance(char, Monster) else {**char.model_dump(), "_is_monster": True})
                 for cid, char in self.characters.items()
-                if cid in self.player_character_ids
             },
             "world": self.world.model_dump(),
             "combat": self.combat.model_dump(),
             "journal": self.journal.model_dump(),
         }
-        path.write_text(json.dumps(data, indent=2))
+
+        # Atomic write: temp file → rename
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(path.parent), suffix=".tmp", prefix=path.stem,
+        )
+        try:
+            with open(fd, "w") as f:
+                json.dump(data, f, indent=2)
+
+            # Backup rotation: keep one .bak
+            if path.exists():
+                bak = path.with_suffix(".bak")
+                shutil.copy2(str(path), str(bak))
+
+            Path(tmp_path).replace(path)
+        except BaseException:
+            # Clean up temp file on failure
+            Path(tmp_path).unlink(missing_ok=True)
+            raise
 
     @classmethod
     def load(cls, path: str | Path, campaign=None) -> "GameState":
-        data = json.loads(Path(path).read_text())
-        characters = {}
-        for cid, char_data in data["characters"].items():
-            characters[cid] = Character.model_validate(char_data)
+        """Load game state with graceful error handling and schema migration."""
+        path = Path(path)
+        try:
+            raw = path.read_text()
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise OSError(f"Cannot read save file {path}: {exc}") from exc
 
-        world_data = data["world"]
-        world = WorldState.model_validate(world_data)
-        combat = CombatState.model_validate(data.get("combat", {}))
-        journal = WorldJournal.model_validate(data.get("journal", {}))
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            # Try the backup
+            bak = path.with_suffix(".bak")
+            if bak.exists():
+                logger.warning("Save file corrupted, falling back to backup: %s", bak)
+                data = json.loads(bak.read_text())
+            else:
+                raise ValueError(
+                    f"Save file is corrupted ({path}): {exc}. No backup available."
+                ) from exc
+
+        # Schema migration
+        data = _migrate_save(data)
+
+        try:
+            characters: dict[str, Character] = {}
+            for cid, char_data in data["characters"].items():
+                if char_data.pop("_is_monster", False):
+                    characters[cid] = Monster.model_validate(char_data)
+                else:
+                    characters[cid] = Character.model_validate(char_data)
+
+            world = WorldState.model_validate(data["world"])
+            combat = CombatState.model_validate(data.get("combat", {}))
+            journal = WorldJournal.model_validate(data.get("journal", {}))
+        except Exception as exc:
+            # Try the backup on validation errors
+            bak = path.with_suffix(".bak")
+            if bak.exists():
+                logger.warning("Save file failed validation, trying backup: %s", exc)
+                return cls.load(bak, campaign=campaign)
+            raise ValueError(
+                f"Save file has incompatible schema ({path}): {exc}"
+            ) from exc
 
         return cls(
             player_character_ids=data["player_character_ids"],
@@ -203,3 +271,17 @@ class GameState:
             journal=journal,
             campaign=campaign,
         )
+
+
+def _migrate_save(data: dict) -> dict:
+    """Apply sequential schema migrations to bring old saves up to date."""
+    version = data.get("version", 0)
+
+    if version < 1:
+        # v0 → v1: add version field, characters now include monsters
+        data.setdefault("version", 1)
+        # Old saves only had player characters; no migration needed for that
+        # since monsters simply won't be present.
+
+    data["version"] = SAVE_VERSION
+    return data

@@ -70,12 +70,29 @@ def end_turn(game_state) -> dict:
             else:
                 current_combatant.condition_durations[condition] = duration - 1
 
+    # Safe condition removal — use list copy + discard pattern
     for cond in expired:
-        if cond in current_char.conditions:
+        try:
             current_char.conditions.remove(cond)
+        except ValueError:
+            pass  # Already removed (e.g. by healing or another effect)
+
+    # Check if ALL combatants are dead/incapacitated — prevent infinite skip loop
+    n = len(combat.turn_order)
+    all_down = all(
+        game_state.get_character(cid).hp <= 0 or "dead" in game_state.get_character(cid).conditions
+        for cid in combat.turn_order
+    )
+    if all_down:
+        combat.active = False
+        return {
+            "success": True,
+            "combat_over": True,
+            "reason": "all_combatants_down",
+            "expired_conditions": expired,
+        }
 
     # Advance turn, skipping dead combatants (0 HP)
-    n = len(combat.turn_order)
     next_index = (combat.current_turn_index + 1) % n
     new_round = combat.round
     if next_index == 0:
@@ -103,6 +120,11 @@ def end_turn(game_state) -> dict:
     combat.combatants[next_id].has_bonus_action = True
     combat.combatants[next_id].has_reaction = True
     combat.combatants[next_id].movement_remaining = next_char.speed
+
+    # Refresh legendary actions at the start of a boss monster's turn
+    from src.models.monster import Monster
+    if isinstance(next_char, Monster) and next_char.legendary_actions_per_round > 0:
+        next_char.legendary_actions_remaining = next_char.legendary_actions_per_round
 
     return {
         "success": True,
@@ -167,7 +189,8 @@ def death_save(game_state, character_id: str) -> dict:
         result["failures"] = char.death_saves.failures
     elif value == 20:
         char.hp = 1
-        char.conditions.remove("unconscious")
+        if "unconscious" in char.conditions:
+            char.conditions.remove("unconscious")
         char.death_saves = type(char.death_saves)()  # reset
         result["outcome"] = "miraculous_recovery"
         result["hp_now"] = 1
@@ -181,11 +204,13 @@ def death_save(game_state, character_id: str) -> dict:
         result["failures"] = char.death_saves.failures
 
     if char.death_saves.successes >= 3:
-        char.conditions.remove("unconscious")
+        if "unconscious" in char.conditions:
+            char.conditions.remove("unconscious")
         char.death_saves.successes = 3  # cap
         result["stabilized"] = True
     elif char.death_saves.failures >= 3:
-        char.conditions.append("dead")
+        if "dead" not in char.conditions:
+            char.conditions.append("dead")
         if "unconscious" in char.conditions:
             char.conditions.remove("unconscious")
         result["dead"] = True

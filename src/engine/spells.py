@@ -50,6 +50,38 @@ def _apply_upcast(base_dice: str | None, spell: SpellData, cast_level: int) -> s
     return result
 
 
+def _get_cantrip_dice(spell: SpellData, caster: Character) -> str:
+    """Get the damage dice for a cantrip based on caster level."""
+    if not spell.cantrip_scaling:
+        return spell.damage_dice or "0"
+    # Find the highest tier the caster qualifies for
+    best_dice = spell.damage_dice or "0"
+    for level_threshold in sorted(spell.cantrip_scaling.keys()):
+        if caster.level >= level_threshold:
+            best_dice = spell.cantrip_scaling[level_threshold]
+    return best_dice
+
+
+def _save_with_legendary_resistance(target: Character, ability: str, dc: int):
+    """Roll a saving throw, but let monsters use legendary resistance to auto-succeed."""
+    from src.models.monster import Monster
+    from src.models.combat import CheckResult, DiceResult
+    save = saving_throw(target, ability, dc)
+    if not save.success and isinstance(target, Monster) and target.legendary_resistances_remaining > 0:
+        target.legendary_resistances_remaining -= 1
+        # Override to success
+        return CheckResult(
+            roll=save.roll,
+            modifier=save.modifier,
+            total=save.total,
+            dc=dc,
+            success=True,
+            nat_20=save.nat_20,
+            nat_1=save.nat_1,
+        )
+    return save
+
+
 def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list[Character], cast_level: int) -> dict:
     """Resolve a spell's mechanical effects."""
     # Validate spell slot
@@ -79,10 +111,11 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
             damage_expr = _apply_upcast(spell.damage_dice, spell, cast_level)
             results = []
             for target in targets:
-                save = saving_throw(target, spell.save_ability or "DEX", dc)
+                # Check legendary resistance first
+                save = _save_with_legendary_resistance(target, spell.save_ability or "DEX", dc)
                 damage = roll_dice(damage_expr).total
                 if save.success:
-                    damage = damage // 2
+                    damage = 0 if spell.save_negates else damage // 2
                 dmg_result = apply_damage(target, damage, spell.damage_type or "force")
                 results.append({
                     "target": target.name,
@@ -104,7 +137,11 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
                 hits = is_crit or (raw != 1 and raw + bonus >= target.ac)
                 damage = None
                 if hits:
-                    damage_expr = _apply_upcast(spell.damage_dice, spell, cast_level)
+                    # Use cantrip scaling for level 0 spells
+                    if spell.level == 0 and spell.cantrip_scaling:
+                        damage_expr = _get_cantrip_dice(spell, caster)
+                    else:
+                        damage_expr = _apply_upcast(spell.damage_dice, spell, cast_level)
                     damage = roll_dice(damage_expr).total
                     if is_crit:
                         damage += roll_dice(damage_expr).total
@@ -120,9 +157,17 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
             return {**base_result, "targets": results}
 
         case SpellResolution.HEALING:
-            heal_expr = _apply_upcast(spell.healing_dice, spell, cast_level)
-            sc_ability = caster.spellcasting_ability or "WIS"
-            heal_amount = roll_dice(heal_expr).total + caster.ability_scores.modifier(sc_ability)
+            if spell.flat_healing is not None:
+                # Fixed healing (e.g. Heal: 70 HP + upcast bonus)
+                heal_amount = spell.flat_healing
+                if spell.upcast_pattern == "flat_healing" and spell.upcast_bonus and cast_level > spell.level:
+                    bonus_match = re.search(r"\+(\d+)", spell.upcast_bonus)
+                    if bonus_match:
+                        heal_amount += int(bonus_match.group(1)) * (cast_level - spell.level)
+            else:
+                heal_expr = _apply_upcast(spell.healing_dice, spell, cast_level)
+                sc_ability = caster.spellcasting_ability or "WIS"
+                heal_amount = roll_dice(heal_expr).total + caster.ability_scores.modifier(sc_ability)
             heal_amount = max(1, heal_amount)
             if not targets:
                 return {**base_result, "error": "No target for healing spell."}
@@ -141,7 +186,7 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
             dc = caster.spell_save_dc or 8
             results = []
             for target in targets:
-                save = saving_throw(target, spell.save_ability or "WIS", dc)
+                save = _save_with_legendary_resistance(target, spell.save_ability or "WIS", dc)
                 effect_applied = not save.success
                 if effect_applied and spell.condition_effect:
                     apply_condition(target, spell.condition_effect, spell.duration_rounds)
@@ -155,10 +200,14 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
             return {**base_result, "dc": dc, "targets": results}
 
         case SpellResolution.AUTO_DAMAGE:
-            damage_expr = _apply_upcast(spell.damage_dice, spell, cast_level)
+            # Use cantrip scaling for level 0 spells
+            if spell.level == 0 and spell.cantrip_scaling:
+                damage_expr = _get_cantrip_dice(spell, caster)
+            else:
+                damage_expr = _apply_upcast(spell.damage_dice, spell, cast_level)
             results = []
             for target in targets:
-                damage = roll_dice(damage_expr).total
+                damage = roll_dice(damage_expr).total if damage_expr != "0" else 0
                 dmg_result = apply_damage(target, damage, spell.damage_type or "force")
                 results.append({
                     "target": target.name,

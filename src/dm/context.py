@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -10,6 +11,8 @@ if TYPE_CHECKING:
     from src.dm.backends.base import LLMBackend
     from src.campaign.campaign_db import CampaignData
     from src.engine.game_state import GameState
+
+logger = logging.getLogger(__name__)
 
 from src.dm.prompts import DM_ROLE_AND_RULES
 
@@ -297,23 +300,32 @@ class ContextManager:
     def get_messages_for_api(self, backend: "LLMBackend | None" = None) -> list[dict]:
         """Return history trimmed to fit token budget.
 
-        Compresses first if over budget (rather than silently dropping).
+        Performs a hard safety check: estimates total payload (system prompt +
+        tools + messages) and compresses/trims to fit within the backend's
+        context window, reserving space for the response.
         """
         if backend:
             budget, _ = self._thresholds(backend.context_window)
         else:
             budget = self._FALLBACK_BUDGET
 
+        # Estimate system prompt + tools overhead (~tokens for static content)
+        system_tokens = self._estimate_tokens(
+            [{"content": self.build_system_prompt()}]
+        )
+        # Reserve space for response (max_tokens) + system prompt
+        effective_budget = max(budget - system_tokens, budget // 2)
+
         # Compress first if over budget
-        if backend and self._estimate_tokens() > budget:
+        if backend and self._estimate_tokens() > effective_budget:
             self.compress_if_needed(backend, force=True)
 
         # If still over budget after compression, trim oldest messages
-        if self._estimate_tokens() <= budget:
+        if self._estimate_tokens() <= effective_budget:
             return self.full_history
 
         trimmed = list(self.full_history)
-        while len(trimmed) > 2 and self._estimate_tokens(trimmed) > budget:
+        while len(trimmed) > 2 and self._estimate_tokens(trimmed) > effective_budget:
             trimmed.pop(0)
         return trimmed
 
@@ -381,6 +393,9 @@ class ContextManager:
         Produces: global campaign summary, per-location summaries, per-NPC
         summaries, and significant events. All stored persistently in the
         journal (survives save/load). Old raw entries are pruned.
+
+        Key safety: old messages are only pruned from history *after* the
+        compression API call succeeds — a failure preserves all history.
         """
         _, trigger = self._thresholds(backend.context_window)
 
@@ -389,10 +404,10 @@ class ContextManager:
         if len(self.full_history) < self._MIN_MESSAGES_FOR_COMPRESS:
             return
 
-        # Take oldest half of messages (keep recent half for context)
+        # Identify oldest half of messages (keep recent half for context)
         n_to_compress = max(self._MIN_MESSAGES_FOR_COMPRESS, len(self.full_history) // 2)
         old_messages = self.full_history[:n_to_compress]
-        self.full_history = self.full_history[n_to_compress:]
+        # DO NOT prune yet — only after successful compression
 
         journal = self.game_state.journal
 
@@ -418,9 +433,17 @@ class ContextManager:
                 f"New events to integrate:\n{self._format_messages(old_messages)}"
             ),
         }]
-        raw_output = backend.compress(
-            system=_COMPRESS_SYSTEM, messages=messages, max_tokens=1500,
-        )
+
+        try:
+            raw_output = backend.compress(
+                system=_COMPRESS_SYSTEM, messages=messages, max_tokens=1500,
+            )
+        except Exception:
+            logger.warning("Compression API call failed — preserving full history", exc_info=True)
+            return  # History is intact; try again next cycle
+
+        # Compression succeeded — NOW prune old messages
+        self.full_history = self.full_history[n_to_compress:]
 
         parsed = _parse_compress_output(raw_output)
 
@@ -454,8 +477,13 @@ class ContextManager:
     # ------------------------------------------------------------------
 
     def _estimate_tokens(self, messages: list[dict] | None = None) -> int:
+        """Estimate token count from serialized message size.
+
+        Uses ~3 chars/token which better matches typical LLM tokenization
+        for mixed English text + JSON structure (conservative vs. old //4).
+        """
         msgs = messages if messages is not None else self.full_history
-        return len(json.dumps(msgs)) // 4
+        return len(json.dumps(msgs)) // 3
 
     def _format_messages(self, messages: list[dict]) -> str:
         parts = []

@@ -21,17 +21,23 @@ def _make_char(**overrides) -> Character:
 
 
 class TestConcentrationOnDamage:
-    def test_damage_flags_concentration_check(self):
+    def test_damage_auto_rolls_concentration_save(self):
+        """Concentration save is now auto-rolled (not just flagged)."""
         char = _make_char(concentration="Bless")
         result = apply_damage(char, 10, "fire")
-        assert result["concentration_check_required"] is True
-        assert result["concentration_dc"] == 10  # max(10, 10//2)
-        assert char.concentration == "Bless"  # not auto-broken
+        assert "concentration_check" in result
+        assert result["concentration_check"]["dc"] == 10  # max(10, 10//2)
+        # Result is either maintained or broken depending on the roll
+        if result["concentration_check"]["success"]:
+            assert char.concentration == "Bless"
+        else:
+            assert char.concentration is None
+            assert result.get("concentration_broken") is True
 
     def test_high_damage_raises_dc(self):
         char = _make_char(hp=50, max_hp=50, concentration="Bless")
         result = apply_damage(char, 30, "fire")
-        assert result["concentration_dc"] == 15  # max(10, 30//2)
+        assert result["concentration_check"]["dc"] == 15  # max(10, 30//2)
 
     def test_knockout_breaks_concentration(self):
         char = _make_char(hp=5, concentration="Shield of Faith")
@@ -43,9 +49,9 @@ class TestConcentrationOnDamage:
     def test_no_concentration_no_flag(self):
         char = _make_char()
         result = apply_damage(char, 10, "fire")
-        assert "concentration_check_required" not in result
+        assert "concentration_check" not in result
 
-    def test_monster_damage_no_concentration_flag(self):
+    def test_monster_damage_no_concentration_check(self):
         """Concentration checks only for player characters."""
         from src.models.monster import Monster
         m = Monster(
@@ -57,5 +63,5 @@ class TestConcentrationOnDamage:
             concentration="Hold Person",
         )
         result = apply_damage(m, 5, "fire")
-        # Monsters don't get concentration check flag (is_player=False)
-        assert "concentration_check_required" not in result
+        # Monsters don't get concentration checks (is_player=False)
+        assert "concentration_check" not in result

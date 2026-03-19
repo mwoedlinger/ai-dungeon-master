@@ -32,7 +32,11 @@ class DeepSeekBackend(LLMBackend):
             raise EnvironmentError(
                 "DEEPSEEK_API_KEY environment variable is not set."
             )
-        self._client = openai.OpenAI(base_url=_DEEPSEEK_BASE_URL, api_key=api_key)
+        self._client = openai.OpenAI(
+            base_url=_DEEPSEEK_BASE_URL,
+            api_key=api_key,
+            timeout=120.0,
+        )
 
     @property
     def context_window(self) -> int:

@@ -205,6 +205,30 @@ _COMBAT_TOOLS = [
             "required": ["xp_awarded"],
         },
     },
+    {
+        "name": "use_legendary_action",
+        "description": "Use a boss monster's legendary action between other combatants' turns. Legendary actions refresh at the start of the monster's turn.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "monster_id": {"type": "string"},
+                "action_name": {"type": "string", "description": "Name of the legendary action to use"},
+                "target_id": {"type": "string", "description": "Target of the action, if applicable"},
+            },
+            "required": ["monster_id", "action_name"],
+        },
+    },
+    {
+        "name": "use_legendary_resistance",
+        "description": "Use a boss monster's legendary resistance to automatically succeed on a saving throw. Limited uses per day.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "monster_id": {"type": "string"},
+            },
+            "required": ["monster_id"],
+        },
+    },
 ]
 
 _STATE_TOOLS = [
@@ -749,15 +773,13 @@ class ToolDispatcher:
             case "apply_condition":
                 target = gs.get_character(inputs["target_id"])
                 duration = inputs.get("duration_rounds")
-                result = apply_condition(target, inputs["condition"], duration)
-                # Track duration on combatant if in combat
-                if gs.combat.active and inputs["target_id"] in gs.combat.combatants and duration:
-                    gs.combat.combatants[inputs["target_id"]].condition_durations[inputs["condition"]] = duration
-                return result
+                combat = gs.combat if gs.combat.active else None
+                return apply_condition(target, inputs["condition"], duration, combat_state=combat)
 
             case "remove_condition":
                 target = gs.get_character(inputs["target_id"])
-                return remove_condition(target, inputs["condition"])
+                combat = gs.combat if gs.combat.active else None
+                return remove_condition(target, inputs["condition"], combat_state=combat)
 
             case "get_monster_actions":
                 return gs.get_monster_actions(inputs["monster_id"])
@@ -770,6 +792,44 @@ class ToolDispatcher:
 
             case "end_combat":
                 return combat_engine.end_combat(gs, inputs["xp_awarded"])
+
+            case "use_legendary_action":
+                from src.models.monster import Monster as _Monster
+                monster = gs.get_character(inputs["monster_id"])
+                if not isinstance(monster, _Monster):
+                    return {"success": False, "error": f"{inputs['monster_id']} is not a monster."}
+                if monster.legendary_actions_remaining <= 0:
+                    return {"success": False, "error": f"{monster.name} has no legendary actions remaining this round."}
+                action_name = inputs["action_name"].lower()
+                action = next((a for a in monster.legendary_actions if a.name.lower() == action_name), None)
+                if action is None:
+                    available = [a.name for a in monster.legendary_actions]
+                    return {"success": False, "error": f"Unknown legendary action. Available: {available}"}
+                if action.cost > monster.legendary_actions_remaining:
+                    return {"success": False, "error": f"{action.name} costs {action.cost} uses but only {monster.legendary_actions_remaining} remaining."}
+                monster.legendary_actions_remaining -= action.cost
+                return {
+                    "success": True,
+                    "monster": monster.name,
+                    "action": action.name,
+                    "description": action.description,
+                    "remaining": monster.legendary_actions_remaining,
+                }
+
+            case "use_legendary_resistance":
+                from src.models.monster import Monster as _Monster2
+                monster = gs.get_character(inputs["monster_id"])
+                if not isinstance(monster, _Monster2):
+                    return {"success": False, "error": f"{inputs['monster_id']} is not a monster."}
+                if monster.legendary_resistances_remaining <= 0:
+                    return {"success": False, "error": f"{monster.name} has no legendary resistances remaining."}
+                monster.legendary_resistances_remaining -= 1
+                return {
+                    "success": True,
+                    "monster": monster.name,
+                    "remaining": monster.legendary_resistances_remaining,
+                    "note": f"{monster.name} chooses to succeed on the saving throw.",
+                }
 
             # --- State management ---
             case "get_character_sheet":
@@ -1001,6 +1061,7 @@ class ToolDispatcher:
                     gs.world.time,
                     hours=inputs.get("hours", 0),
                     minutes=inputs.get("minutes", 0),
+                    game_state=gs,
                 )
 
             case "attune_item":
