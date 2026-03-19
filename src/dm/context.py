@@ -398,11 +398,17 @@ class ContextManager:
         compression API call succeeds — a failure preserves all history.
         """
         _, trigger = self._thresholds(backend.context_window)
+        current_tokens = self._estimate_tokens()
 
-        if not force and self._estimate_tokens() < trigger:
+        if not force and current_tokens < trigger:
             return
         if len(self.full_history) < self._MIN_MESSAGES_FOR_COMPRESS:
             return
+
+        logger.info(
+            "Compression triggered: %d estimated tokens (trigger=%d), %d messages, force=%s",
+            current_tokens, trigger, len(self.full_history), force,
+        )
 
         # Identify oldest half of messages (keep recent half for context)
         n_to_compress = max(self._MIN_MESSAGES_FOR_COMPRESS, len(self.full_history) // 2)
@@ -443,9 +449,23 @@ class ContextManager:
             return  # History is intact; try again next cycle
 
         # Compression succeeded — NOW prune old messages
+        tokens_before = self._estimate_tokens()
         self.full_history = self.full_history[n_to_compress:]
+        tokens_after = self._estimate_tokens()
 
         parsed = _parse_compress_output(raw_output)
+
+        logger.info(
+            "Compression complete: %d messages compressed, %d→%d estimated tokens (freed ~%d), "
+            "%d location summaries, %d NPC summaries, %d events extracted",
+            n_to_compress,
+            tokens_before, tokens_after, tokens_before - tokens_after,
+            len(parsed.location_summaries),
+            len(parsed.npc_summaries),
+            len(parsed.events),
+        )
+        if parsed.global_summary:
+            logger.debug("Compressed global summary: %s", parsed.global_summary[:200])
 
         # Update global summary
         if parsed.global_summary:

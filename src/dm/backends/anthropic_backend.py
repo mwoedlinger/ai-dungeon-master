@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 import anthropic as _anthropic
 
-from src.dm.backends.base import LLMBackend, LLMResponse, ToolCall
+from src.dm.backends.base import LLMBackend, LLMResponse, ToolCall, TokenUsage
 
 _COMPRESS_MODEL = "claude-haiku-4-5-20251001"
 
@@ -134,8 +134,17 @@ class AnthropicBackend(LLMBackend):
         else:
             raw_assistant_message = {"role": "assistant", "content": raw_content}
 
+        # Extract token usage from response
+        usage = TokenUsage()
+        if hasattr(response, "usage") and response.usage:
+            usage.input_tokens = getattr(response.usage, "input_tokens", 0)
+            usage.output_tokens = getattr(response.usage, "output_tokens", 0)
+            usage.cache_read_tokens = getattr(response.usage, "cache_read_input_tokens", 0)
+            usage.cache_creation_tokens = getattr(response.usage, "cache_creation_input_tokens", 0)
+
         return LLMResponse(
             text="".join(text_parts),
             tool_calls=tool_calls,
             raw_assistant_message=raw_assistant_message,
+            usage=usage,
         )

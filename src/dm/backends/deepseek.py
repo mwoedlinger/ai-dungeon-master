@@ -12,7 +12,7 @@ import json
 import os
 from collections.abc import Callable
 
-from src.dm.backends.base import LLMBackend, LLMResponse, ToolCall
+from src.dm.backends.base import LLMBackend, LLMResponse, ToolCall, TokenUsage
 
 _DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
@@ -239,8 +239,15 @@ class DeepSeekBackend(LLMBackend):
         else:
             raw_assistant_message = {"role": "assistant", "content": raw_content}
 
+        # Extract token usage
+        usage = TokenUsage()
+        if hasattr(response, "usage") and response.usage:
+            usage.input_tokens = getattr(response.usage, "prompt_tokens", 0)
+            usage.output_tokens = getattr(response.usage, "completion_tokens", 0)
+
         return LLMResponse(
             text=text,
             tool_calls=tool_calls,
             raw_assistant_message=raw_assistant_message,
+            usage=usage,
         )

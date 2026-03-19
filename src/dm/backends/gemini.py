@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from src.dm.backends.base import LLMBackend, LLMResponse, ToolCall
+from src.dm.backends.base import LLMBackend, LLMResponse, ToolCall, TokenUsage
 
 
 class GeminiBackend(LLMBackend):
@@ -155,8 +155,16 @@ class GeminiBackend(LLMBackend):
         else:
             raw_assistant_message = {"role": "assistant", "content": raw_content}
 
+        # Extract token usage from Gemini response
+        usage = TokenUsage()
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            um = response.usage_metadata
+            usage.input_tokens = getattr(um, "prompt_token_count", 0) or 0
+            usage.output_tokens = getattr(um, "candidates_token_count", 0) or 0
+
         return LLMResponse(
             text="".join(text_parts),
             tool_calls=tool_calls,
             raw_assistant_message=raw_assistant_message,
+            usage=usage,
         )

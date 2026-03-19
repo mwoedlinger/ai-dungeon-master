@@ -5,9 +5,11 @@ import json
 import logging
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 
 from src.campaign.campaign_db import CampaignData
 from src.dm.backends import create_backend
+from src.dm.backends.base import TokenUsage
 from src.dm.context import ContextManager
 from src.dm.tools import ALL_TOOL_SCHEMAS, ToolDispatcher
 from src.engine.game_state import GameState
@@ -21,6 +23,51 @@ MAX_TOOL_ITERATIONS = 15
 # Retry settings for transient API errors
 _MAX_RETRIES = 3
 _RETRY_BASE_DELAY = 1.0  # seconds
+
+# Approximate cost per million tokens by provider/model (USD)
+_COST_PER_M_TOKENS: dict[str, dict[str, float]] = {
+    "anthropic": {"input": 3.0, "output": 15.0},
+    "deepseek": {"input": 0.27, "output": 1.10},
+    "gemini": {"input": 0.075, "output": 0.30},
+    "ollama": {"input": 0.0, "output": 0.0},
+}
+
+
+@dataclass
+class SessionTokenStats:
+    """Accumulated token usage for the current session."""
+    total_input: int = 0
+    total_output: int = 0
+    total_cache_read: int = 0
+    total_cache_creation: int = 0
+    api_calls: int = 0
+    provider: str = ""
+
+    def record(self, usage: TokenUsage) -> None:
+        self.total_input += usage.input_tokens
+        self.total_output += usage.output_tokens
+        self.total_cache_read += usage.cache_read_tokens
+        self.total_cache_creation += usage.cache_creation_tokens
+        self.api_calls += 1
+
+    @property
+    def estimated_cost_usd(self) -> float:
+        rates = _COST_PER_M_TOKENS.get(self.provider, {"input": 0, "output": 0})
+        return (
+            self.total_input * rates["input"] / 1_000_000
+            + self.total_output * rates["output"] / 1_000_000
+        )
+
+    def summary(self) -> dict:
+        return {
+            "api_calls": self.api_calls,
+            "input_tokens": self.total_input,
+            "output_tokens": self.total_output,
+            "total_tokens": self.total_input + self.total_output,
+            "cache_read_tokens": self.total_cache_read,
+            "cache_creation_tokens": self.total_cache_creation,
+            "estimated_cost_usd": round(self.estimated_cost_usd, 4),
+        }
 
 
 def _is_retryable(exc: Exception) -> bool:
@@ -73,6 +120,7 @@ class DungeonMaster:
         provider: str = "anthropic",
         model: str | None = None,
         save_path: str = "saves/autosave.json",
+        debug: bool = False,
     ):
         self.backend = create_backend(provider, model)
         self.game_state = game_state
@@ -81,6 +129,16 @@ class DungeonMaster:
         self.tool_dispatcher = ToolDispatcher(
             game_state, event_log, save_path=save_path,
             backend=self.backend, campaign=campaign,
+        )
+        self.debug = debug
+        self.token_stats = SessionTokenStats(provider=provider)
+
+        # Debug callback for real-time tool call display
+        self._on_tool_call: Callable[[str, dict, dict], None] | None = None
+
+        logger.info(
+            "DungeonMaster initialized: provider=%s, model=%s, debug=%s",
+            provider, model or "(default)", debug,
         )
 
     def process_player_input(
@@ -94,6 +152,7 @@ class DungeonMaster:
         callback.  All intermediate iterations (tool calls) use non-streaming
         complete so that the LLM's internal reasoning is never shown to players.
         """
+        logger.debug("Player input: %s", player_input[:100])
         self.context_manager.add_message({"role": "user", "content": player_input})
 
         for iteration in range(MAX_TOOL_ITERATIONS):
@@ -102,6 +161,13 @@ class DungeonMaster:
                 messages=self.context_manager.get_messages_for_api(self.backend),
                 tools=ALL_TOOL_SCHEMAS,
                 max_tokens=2048,
+            )
+
+            logger.debug(
+                "API call iteration %d: %d messages, estimated %d tokens",
+                iteration,
+                len(api_kwargs["messages"]),
+                self.context_manager._estimate_tokens(),
             )
 
             # Always use non-streaming first. This prevents the LLM's
@@ -122,6 +188,15 @@ class DungeonMaster:
                     logger.error("API call failed: %s", exc)
                     return f"[The DM encounters a magical disturbance. Error: {exc}]"
 
+            # Track token usage
+            self.token_stats.record(result.usage)
+            logger.debug(
+                "API response: %d input tokens, %d output tokens, %d tool calls",
+                result.usage.input_tokens,
+                result.usage.output_tokens,
+                len(result.tool_calls),
+            )
+
             if not result.tool_calls:
                 self.context_manager.add_message(result.raw_assistant_message)
                 self.context_manager.compact_tool_pairs()
@@ -137,7 +212,19 @@ class DungeonMaster:
 
             tool_results = []
             for tc in result.tool_calls:
+                logger.debug("Tool call: %s(%s)", tc.name, json.dumps(tc.input)[:200])
                 outcome = self.tool_dispatcher.dispatch(tc.name, tc.input)
+                logger.debug(
+                    "Tool result: %s → %s",
+                    tc.name,
+                    json.dumps(outcome)[:200] if outcome.get("success", True)
+                    else f"FAILED: {outcome.get('error', '?')}",
+                )
+
+                # Debug callback for real-time display
+                if self._on_tool_call:
+                    self._on_tool_call(tc.name, tc.input, outcome)
+
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": tc.id,

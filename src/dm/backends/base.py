@@ -14,10 +14,24 @@ class ToolCall:
 
 
 @dataclass
+class TokenUsage:
+    """Token usage from a single API call."""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+
+@dataclass
 class LLMResponse:
     text: str
     tool_calls: list[ToolCall]
     raw_assistant_message: dict  # normalized, ready to append to history
+    usage: TokenUsage = field(default_factory=TokenUsage)
 
 
 class LLMBackend(ABC):

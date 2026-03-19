@@ -1,7 +1,10 @@
 """Tool schemas, action costs, and ToolDispatcher."""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from src.data.srd_client import get_monster_template, get_spell, lookup_srd as _lookup_srd
 from src.engine import combat as combat_engine
@@ -793,14 +796,17 @@ class ToolDispatcher:
             if self.game_state.combat.active and tool_name in ACTION_COSTS:
                 validation = self._validate_combat_action(tool_name, inputs)
                 if not validation["valid"]:
+                    logger.warning("Action economy rejected: %s — %s", tool_name, validation["reason"])
                     return {"success": False, "error": validation["reason"]}
 
             result = self._route(tool_name, inputs)
             self.event_log.log(tool_name, inputs, result)
             return result
         except KeyError as e:
+            logger.warning("Tool dispatch KeyError: %s(%s) — %s", tool_name, inputs, e)
             return {"success": False, "error": f"Character/object not found: {e}"}
         except Exception as e:
+            logger.error("Tool dispatch error: %s(%s) — %s: %s", tool_name, inputs, type(e).__name__, e, exc_info=True)
             return {"success": False, "error": f"Engine error: {type(e).__name__}: {e}"}
 
     def _validate_combat_action(self, tool_name: str, inputs: dict) -> dict:
