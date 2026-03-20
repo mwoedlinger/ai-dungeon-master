@@ -17,7 +17,7 @@ from pathlib import Path
 try:
     import httpx
 except ImportError:
-    print("httpx required: pip install 'ai-dungeon-master[fetch]'")
+    print("httpx required: pip install 'dungeon-weaver[fetch]'")
     sys.exit(1)
 
 API_BASE = "https://www.dnd5eapi.co/api/2014"

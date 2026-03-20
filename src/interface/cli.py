@@ -69,9 +69,31 @@ def clear_screen() -> None:
 
 
 def display_header() -> None:
-    """Display the game header after clearing."""
-    console.print("[header]═══ AI Dungeon Master ═══[/header]")
-    console.print("[dim]Type /help for commands[/dim]\n")
+    """Display the game header with atmospheric banner, centered in terminal."""
+    # Raw lines with Rich markup — visible widths: 52, 55, 57, 57, 57, 55, 52, 55, 46
+    _raw_lines = [
+        ("[dim cyan]░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░[/dim cyan]", 46),
+        ("[dim cyan]░░░[/dim cyan]                                              [dim cyan]░░░[/dim cyan]", 55),
+        ("[dim cyan]░░[/dim cyan]     [bold bright_cyan]╔╦╗╦ ╦╔╗╔╔═╗╔═╗╔═╗╔╗╔  ╦ ╦╔═╗╔═╗╦  ╦╔═╗╦═╗[/bold bright_cyan]     [dim cyan]░░[/dim cyan]", 57),
+        ("[dim cyan]░░[/dim cyan]     [bold bright_cyan] ║║║ ║║║║║ ╦║╣ ║ ║║║║  ║║║║╣ ╠═╣╚╗╔╝║╣ ╠╦╝[/bold bright_cyan]     [dim cyan]░░[/dim cyan]", 57),
+        ("[dim cyan]░░[/dim cyan]     [bold bright_cyan]═╩╝╚═╝╝╚╝╚═╝╚═╝╚═╝╝╚╝  ╚╩╝╚═╝╩ ╩ ╚╝ ╚═╝╩╚═[/bold bright_cyan]     [dim cyan]░░[/dim cyan]", 57),
+        ("[dim cyan]░░░[/dim cyan]                                              [dim cyan]░░░[/dim cyan]", 55),
+        ("[dim cyan]░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░[/dim cyan]", 46),
+    ]
+    max_w = 57  # widest line (the three text rows)
+    term_w = console.width
+    console.print()
+    for markup, visible_w in _raw_lines:
+        pad = max(0, (term_w - max_w) // 2 + (max_w - visible_w) // 2)
+        console.print(" " * pad + markup, highlight=False)
+    console.print()
+    tagline = "Threads of fate are spun. The loom awaits."
+    hint = "Type /help for commands"
+    pad_tag = max(0, (term_w - len(tagline)) // 2)
+    pad_hint = max(0, (term_w - len(hint)) // 2)
+    console.print(" " * pad_tag + f"[dim]{tagline}[/dim]", highlight=False)
+    console.print(" " * pad_hint + f"[dim italic]{hint}[/dim italic]", highlight=False)
+    console.print()
 
 
 def display_turn_separator(name: str, *, is_player: bool) -> None:
@@ -114,7 +136,8 @@ class NarrativeStreamer:
     _BOLD_CYAN = "\033[1;36m"
     _BOLD_RED = "\033[1;31m"
     _RESET = "\033[0m"
-    _MARGIN = 5  # "  │  " — 2 indent + border + 2 padding
+    _LEFT_MARGIN = 5   # "  │  " — 2 indent + border + 2 padding
+    _RIGHT_MARGIN = 3  # "  │" — 2 padding + border
 
     def __init__(self, location_name: str = "", combat: bool = False) -> None:
         self._location_name = location_name
@@ -142,11 +165,19 @@ class NarrativeStreamer:
             self._vert = "\u2551"
 
         self._line_prefix = f"  {self._color}{self._vert}{self._RESET}  "
+        self._line_suffix = f"  {self._color}{self._vert}{self._RESET}"
+
+    def _close_line(self) -> None:
+        """Pad the current line to full width and print the right border."""
+        remaining = self._max_col - self._col
+        if remaining > 0:
+            sys.stdout.write(" " * remaining)
+        sys.stdout.write(self._line_suffix)
 
     def start(self) -> None:
         """Print the top border of the narrative panel."""
         w = console.width - 4
-        self._max_col = console.width - self._MARGIN - 1
+        self._max_col = w - self._RIGHT_MARGIN - 1  # content width inside borders
         if self._location_name:
             label = f" {self._location_name} "
             fill = max(0, w - len(label) - 2)
@@ -159,12 +190,14 @@ class NarrativeStreamer:
             sys.stdout.write(
                 f"  {self._color}{self._tl}{self._horiz * w}{self._tr}{self._RESET}\n"
             )
-        sys.stdout.write(f"{self._line_prefix}\n{self._line_prefix}")
+        # Empty padding line with both borders, then start first content line
+        sys.stdout.write(f"{self._line_prefix}{' ' * self._max_col}{self._line_suffix}\n{self._line_prefix}")
         sys.stdout.flush()
         self._started = True
         self._col = 0
 
     def _newline(self) -> None:
+        self._close_line()
         sys.stdout.write(f"\n{self._line_prefix}")
         self._col = 0
 
@@ -209,10 +242,14 @@ class NarrativeStreamer:
         """Print the bottom border of the narrative panel."""
         if self._started:
             self._flush_word()
+            self._close_line()
             w = console.width - 4
+            # Empty line before bottom border, also with right border
+            sys.stdout.write(f"\n{self._line_prefix}")
+            sys.stdout.write(" " * self._max_col)
+            sys.stdout.write(self._line_suffix)
             sys.stdout.write(
-                f"\n{self._line_prefix}\n"
-                f"  {self._color}{self._bl}{self._horiz * w}{self._br}{self._RESET}\n"
+                f"\n  {self._color}{self._bl}{self._horiz * w}{self._br}{self._RESET}\n"
             )
             sys.stdout.flush()
             self._started = False

@@ -1,6 +1,6 @@
-# AI Dungeon Master
+# Dungeon Weaver
 
-A CLI D&D 5e game powered by LLMs. The LLM narrates and voices NPCs; a Python engine handles all the rules — dice rolls, HP, spell slots, combat, conditions, leveling. Two-player local co-op.
+An AI Dungeon Master for D&D 5e. The LLM weaves the narrative and voices NPCs; a Python engine handles all the rules — dice rolls, HP, spell slots, combat, conditions, leveling. Two-player local co-op in the terminal.
 
 ## Quickstart
 
@@ -9,7 +9,7 @@ I typically use DeepSeek since it's cheap and good quality. Get an API key at [p
 ```bash
 export DEEPSEEK_API_KEY="your-key-here"
 
-cd ai-dungeon-master
+cd dungeon-weaver
 
 # Create a virtual environment and install
 python -m venv .venv

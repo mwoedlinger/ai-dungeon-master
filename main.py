@@ -1,8 +1,9 @@
-"""AI Dungeon Master — entry point."""
+"""Dungeon Weaver — entry point."""
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -16,12 +17,11 @@ from src.interface.cli import console
 from src.interface.session import SessionManager
 from src.log.event_log import EventLog
 from src.models.character import Character
-from src.models.combat import CombatState
-from src.models.world import Location, Quest, WorldState
+from src.models.world import Quest, WorldState
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="AI Dungeon Master")
+    p = argparse.ArgumentParser(description="Dungeon Weaver")
     p.add_argument("--campaign", default="campaigns/shattered_crown",
                    help="Path to campaign (JSON file or YAML directory)")
     p.add_argument("--save", default=None, help="Path to save file (load existing)")
@@ -40,7 +40,24 @@ def parse_args() -> argparse.Namespace:
                    help="Path for auto-save file")
     p.add_argument("--validate-campaign", action="store_true",
                    help="Validate campaign cross-references and exit")
+    p.add_argument("--debug", action="store_true",
+                   help="Print tool calls, inputs, and results in real-time alongside narrative")
+    p.add_argument("--verbose", action="store_true",
+                   help="Enable verbose logging (compression events, token usage, context management)")
     return p.parse_args()
+
+
+def _load_characters_from_file(path: Path) -> tuple[dict[str, Character], list[str]]:
+    """Load characters from a JSON file. Returns (characters_dict, pc_ids)."""
+    data = json.loads(path.read_text())
+    characters: dict[str, Character] = {}
+    pc_ids: list[str] = []
+    for char_data in data.get("characters", []):
+        char = Character.model_validate(char_data)
+        characters[char.id] = char
+        if char.is_player:
+            pc_ids.append(char.id)
+    return characters, pc_ids
 
 
 def load_game_state(
@@ -76,18 +93,18 @@ def load_game_state(
         chars_path = Path(args.characters)
         if not chars_path.exists():
             console.print(f"[red]Characters file not found: {chars_path}[/red]")
-            console.print("[yellow]Creating default characters...[/yellow]")
-            return _create_default_game_state(campaign)
-        data = json.loads(chars_path.read_text())
-        characters = {}
-        pc_ids = []
-        for char_data in data.get("characters", []):
-            char = Character.model_validate(char_data)
-            characters[char.id] = char
-            if char.is_player:
-                pc_ids.append(char.id)
+            sys.exit(1)
+        characters, pc_ids = _load_characters_from_file(chars_path)
+        console.print(f"[dim]Loaded {len(pc_ids)} character(s) from {chars_path}[/dim]")
     else:
-        return _create_default_game_state(campaign)
+        # Default: load from default_characters.json
+        default_path = Path("campaigns/default_characters.json")
+        if not default_path.exists():
+            console.print("[red]Default characters file not found: campaigns/default_characters.json[/red]")
+            console.print("[yellow]Use 'create' to make new characters instead.[/yellow]")
+            sys.exit(1)
+        characters, pc_ids = _load_characters_from_file(default_path)
+        console.print(f"[dim]Loaded default characters: {', '.join(c.name for c in characters.values())}[/dim]")
 
     # Build world state from campaign
     starting_loc = campaign.starting_location_id or next(iter(campaign.locations))
@@ -101,6 +118,7 @@ def load_game_state(
                 description=h.description,
                 status="active",
                 objectives=[h.description],
+                rewards=h.rewards,
             )
             for h in campaign.plot_hooks[:2]  # Start with first 2 plot hooks as quests
         ],
@@ -113,69 +131,6 @@ def load_game_state(
         campaign=campaign,
     )
     return gs
-
-
-def _create_default_game_state(campaign) -> GameState:
-    """Fallback minimal game state."""
-    from src.models.character import AbilityScores, Armor, Weapon
-
-    fighter = Character(
-        id="aldric",
-        name="Aldric Stonemantle",
-        race="Human",
-        class_name="Fighter",
-        level=3,
-        xp=900,
-        ability_scores=AbilityScores(STR=16, DEX=12, CON=14, INT=10, WIS=10, CHA=10),
-        hp=28,
-        max_hp=28,
-        ac=16,
-        proficiency_bonus=2,
-        skill_proficiencies=["Athletics", "Perception"],
-        weapon_proficiencies=["martial", "simple"],
-        armor_proficiencies=["light", "medium", "heavy", "shields"],
-        saving_throw_proficiencies=["STR", "CON"],
-        hit_dice_remaining=3,
-        hit_die_type="d10",
-        weapons=[Weapon(name="Longsword", damage_dice="1d8", damage_type="slashing")],
-        armor=Armor(name="Chain Mail", base_ac=16, armor_type="heavy"),
-    )
-    wizard = Character(
-        id="zara",
-        name="Zara Moonwhisper",
-        race="Half-Elf",
-        class_name="Wizard",
-        level=3,
-        xp=900,
-        ability_scores=AbilityScores(STR=8, DEX=14, CON=12, INT=16, WIS=12, CHA=14),
-        hp=19,
-        max_hp=19,
-        ac=13,
-        proficiency_bonus=2,
-        skill_proficiencies=["Arcana", "History", "Investigation"],
-        weapon_proficiencies=["simple"],
-        armor_proficiencies=["light"],
-        saving_throw_proficiencies=["INT", "WIS"],
-        spell_slots={1: 4, 2: 2},
-        max_spell_slots={1: 4, 2: 2},
-        spellcasting_ability="INT",
-        known_spells=["Fire Bolt", "Magic Missile", "Fireball", "Shield", "Mage Armor"],
-        hit_dice_remaining=3,
-        hit_die_type="d6",
-        weapons=[],
-    )
-
-    starting_loc = campaign.starting_location_id or next(iter(campaign.locations))
-    world = WorldState(
-        current_location_id=starting_loc,
-        locations=dict(campaign.locations),
-    )
-    return GameState(
-        player_character_ids=["aldric", "zara"],
-        characters={"aldric": fighter, "zara": wizard},
-        world=world,
-        campaign=campaign,
-    )
 
 
 _AUTH_HELP = {
@@ -217,8 +172,81 @@ def _handle_auth_error(error: Exception, provider: str) -> None:
     sys.exit(1)
 
 
+def _setup_logging(
+    debug: bool = False,
+    verbose: bool = False,
+    log_dir: str = "logs",
+) -> Path | None:
+    """Configure structured logging based on CLI flags.
+
+    When *debug* is True, a debug log file is written to *log_dir*/ with the
+    full DEBUG stream (including all LLM I/O).  The console only shows WARNING
+    unless *verbose* (→ INFO) or *debug* (→ DEBUG) is set.
+
+    Returns the path to the debug log file, or None.
+    """
+    console_level = logging.WARNING
+    if debug:
+        console_level = logging.DEBUG
+    elif verbose:
+        console_level = logging.INFO
+
+    logging.basicConfig(
+        level=console_level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
+
+    # Suppress noisy third-party loggers even in debug mode
+    for noisy in ("httpx", "httpcore", "urllib3", "google", "openai"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    # Always write a debug log file when --debug is on
+    debug_log_path = None
+    if debug:
+        from datetime import datetime
+        log_dir_path = Path(log_dir)
+        log_dir_path.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        debug_log_path = log_dir_path / f"debug_{timestamp}.log"
+        file_handler = logging.FileHandler(debug_log_path, encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        logging.getLogger().addHandler(file_handler)
+        # Ensure root logger level captures DEBUG for the file handler
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    return debug_log_path
+
+
+def _debug_tool_callback(tool_name: str, inputs: dict, result: dict) -> None:
+    """Print tool calls in real-time for --debug mode."""
+    success = result.get("success", True)
+    status = "[green]OK[/green]" if success else f"[red]FAIL: {result.get('error', '?')}[/red]"
+
+    # Compact input display
+    input_parts = []
+    for k, v in list(inputs.items())[:4]:
+        val = str(v)
+        if len(val) > 40:
+            val = val[:37] + "..."
+        input_parts.append(f"{k}={val}")
+    input_str = ", ".join(input_parts)
+
+    console.print(f"  [dim]⚙ {tool_name}({input_str}) → {status}[/dim]")
+
+
 def main() -> None:
     args = parse_args()
+
+    # Set up logging based on flags
+    debug_log_path = _setup_logging(debug=args.debug, verbose=args.verbose)
+    if debug_log_path:
+        console.print(f"[dim]Debug log: {debug_log_path}[/dim]")
 
     # Load SRD data
     load_srd_data()
@@ -254,8 +282,13 @@ def main() -> None:
     game_state = load_game_state(args, campaign)
     game_state.campaign = campaign
 
-    # Set up event log
-    event_log = EventLog(game_state)
+    # Set up persistent event log alongside the save file
+    save_path = Path(args.autosave)
+    event_log_path = save_path.with_suffix(".events.jsonl")
+    event_log = EventLog(game_state, persist_path=event_log_path)
+
+    if args.debug or args.verbose:
+        console.print(f"[dim]Event log: {event_log_path}[/dim]")
 
     # Set up DM
     try:
@@ -266,10 +299,15 @@ def main() -> None:
             provider=args.provider,
             model=args.model,
             save_path=args.autosave,
+            debug=args.debug,
         )
     except Exception as e:
         _handle_auth_error(e, args.provider)
         raise
+
+    # Wire up debug tool callback
+    if args.debug:
+        dm._on_tool_call = _debug_tool_callback
 
     # Player names from characters
     player_names = [
@@ -287,6 +325,15 @@ def main() -> None:
             _handle_auth_error(e, args.provider)
         else:
             raise
+    finally:
+        # Print session token stats
+        stats = dm.token_stats.summary()
+        if stats["api_calls"] > 0:
+            console.print(f"\n[dim]Session stats: {stats['api_calls']} API calls, "
+                          f"{stats['total_tokens']:,} tokens "
+                          f"(in: {stats['input_tokens']:,}, out: {stats['output_tokens']:,}), "
+                          f"est. cost: ${stats['estimated_cost_usd']:.4f}[/dim]")
+        event_log.close()
 
 
 if __name__ == "__main__":
