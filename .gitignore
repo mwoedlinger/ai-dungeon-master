@@ -207,7 +207,14 @@ marimo/_lsp/
 __marimo__/
 
 
-# ai-dungeon-master
+# dungeon-weaver
 saves
+logs/
 src/data/srd/cache/
 src/data/srd/_raw_*.json
+
+# Web UI
+ui/node_modules/
+ui/dist/
+
+.ignore
