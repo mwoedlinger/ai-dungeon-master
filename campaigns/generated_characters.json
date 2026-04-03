@@ -1,0 +1,286 @@
+{
+  "characters": [
+    {
+      "id": "matthias",
+      "name": "Matthias Greenleaf",
+      "race": "Half-Elf",
+      "class_name": "Druid",
+      "subclass": "Circle of the Land",
+      "level": 3,
+      "xp": 900,
+      "ability_scores": {
+        "STR": 8,
+        "DEX": 13,
+        "CON": 14,
+        "INT": 12,
+        "WIS": 15,
+        "CHA": 10
+      },
+      "hp": 24,
+      "max_hp": 24,
+      "temp_hp": 0,
+      "ac": 12,
+      "speed": 30,
+      "proficiency_bonus": 2,
+      "skill_proficiencies": [
+        "Nature",
+        "Survival",
+        "Medicine",
+        "Religion"
+      ],
+      "weapon_proficiencies": [
+        "clubs",
+        "daggers",
+        "darts",
+        "javelins",
+        "maces",
+        "quarterstaffs",
+        "scimitars",
+        "sickles",
+        "slings",
+        "spears"
+      ],
+      "armor_proficiencies": [
+        "light",
+        "medium",
+        "shields"
+      ],
+      "saving_throw_proficiencies": [
+        "INT",
+        "WIS"
+      ],
+      "spell_slots": {
+        "1": 4,
+        "2": 2
+      },
+      "max_spell_slots": {
+        "1": 4,
+        "2": 2
+      },
+      "spellcasting_ability": "WIS",
+      "known_spells": [
+        "Shillelagh",
+        "Healing Word",
+        "Entangle",
+        "Barkskin",
+        "Spike Growth"
+      ],
+      "hit_dice_remaining": 3,
+      "hit_die_type": "d8",
+      "class_resources": {},
+      "weapons": [
+        {
+          "name": "Quarterstaff",
+          "damage_dice": "1d6",
+          "damage_type": "bludgeoning",
+          "properties": [
+            "versatile"
+          ],
+          "range_normal": null,
+          "range_long": null,
+          "attack_bonus_override": null
+        }
+      ],
+      "armor": {
+        "name": "Leather Armor",
+        "base_ac": 11,
+        "armor_type": "light",
+        "stealth_disadvantage": false,
+        "strength_requirement": null
+      },
+      "shield": false,
+      "inventory": [
+        {
+          "name": "Petrified Oak Leaf",
+          "description": "A leaf turned to stone, carried as a reminder of their first vision.",
+          "quantity": 1,
+          "weight": 0.0,
+          "properties": {}
+        },
+        {
+          "name": "Herbalist's Satchel",
+          "description": "A worn leather bag filled with dried herbs and rare mosses.",
+          "quantity": 1,
+          "weight": 0.0,
+          "properties": {}
+        },
+        {
+          "name": "Whittled Wolf Figurine",
+          "description": "A small wooden carving of a wolf, a gift from a forest friend.",
+          "quantity": 1,
+          "weight": 0.0,
+          "properties": {}
+        },
+        {
+          "name": "Healing Potion",
+          "description": "Restores 2d4+2 HP",
+          "quantity": 2,
+          "weight": 0.5,
+          "properties": {}
+        },
+        {
+          "name": "Rations",
+          "description": "One day of food",
+          "quantity": 5,
+          "weight": 2.0,
+          "properties": {}
+        },
+        {
+          "name": "Gold Pieces",
+          "description": "",
+          "quantity": 25,
+          "weight": 0.02,
+          "properties": {}
+        }
+      ],
+      "background": "Hermit",
+      "alignment": "Neutral Good",
+      "personality_traits": "Patient and observant, speaks in gentle, measured tones.",
+      "ideals": "Balance must be maintained between civilization and the wild.",
+      "bonds": "Protects a sacred grove where they discovered their druidic calling.",
+      "flaws": "Overly cautious, sometimes hesitating when decisive action is needed.",
+      "conditions": [],
+      "concentration": null,
+      "death_saves": {
+        "successes": 0,
+        "failures": 0
+      },
+      "is_player": true
+    },
+    {
+      "id": "ghazal",
+      "name": "Ghazal Moonshadow",
+      "race": "Elf",
+      "class_name": "Warlock",
+      "subclass": "The Archfey",
+      "level": 3,
+      "xp": 900,
+      "ability_scores": {
+        "STR": 8,
+        "DEX": 14,
+        "CON": 13,
+        "INT": 10,
+        "WIS": 12,
+        "CHA": 15
+      },
+      "hp": 21,
+      "max_hp": 21,
+      "temp_hp": 0,
+      "ac": 13,
+      "speed": 30,
+      "proficiency_bonus": 2,
+      "skill_proficiencies": [
+        "Arcana",
+        "Deception",
+        "Athletics",
+        "Survival"
+      ],
+      "weapon_proficiencies": [
+        "simple"
+      ],
+      "armor_proficiencies": [
+        "light"
+      ],
+      "saving_throw_proficiencies": [
+        "WIS",
+        "CHA"
+      ],
+      "spell_slots": {
+        "2": 2
+      },
+      "max_spell_slots": {
+        "2": 2
+      },
+      "spellcasting_ability": "CHA",
+      "known_spells": [
+        "Eldritch Blast",
+        "Hex",
+        "Armor of Agathys",
+        "Misty Step",
+        "Suggestion"
+      ],
+      "hit_dice_remaining": 3,
+      "hit_die_type": "d8",
+      "class_resources": {},
+      "weapons": [
+        {
+          "name": "Light Crossbow",
+          "damage_dice": "1d8",
+          "damage_type": "piercing",
+          "properties": [
+            "ranged",
+            "two-handed"
+          ],
+          "range_normal": 80,
+          "range_long": 320,
+          "attack_bonus_override": null
+        }
+      ],
+      "armor": {
+        "name": "Leather Armor",
+        "base_ac": 11,
+        "armor_type": "light",
+        "stealth_disadvantage": false,
+        "strength_requirement": null
+      },
+      "shield": false,
+      "inventory": [
+        {
+          "name": "Fey-Touched Locket",
+          "description": "A silver locket that sometimes whispers in Sylvan when opened.",
+          "quantity": 1,
+          "weight": 0.0,
+          "properties": {}
+        },
+        {
+          "name": "Moonlit Cloak",
+          "description": "A cloak that shimmers faintly under moonlight, a gift from their patron.",
+          "quantity": 1,
+          "weight": 0.0,
+          "properties": {}
+        },
+        {
+          "name": "Crystal Prism",
+          "description": "A small prism that fractures light into impossible colors.",
+          "quantity": 1,
+          "weight": 0.0,
+          "properties": {}
+        },
+        {
+          "name": "Healing Potion",
+          "description": "Restores 2d4+2 HP",
+          "quantity": 2,
+          "weight": 0.5,
+          "properties": {}
+        },
+        {
+          "name": "Rations",
+          "description": "One day of food",
+          "quantity": 5,
+          "weight": 2.0,
+          "properties": {}
+        },
+        {
+          "name": "Gold Pieces",
+          "description": "",
+          "quantity": 25,
+          "weight": 0.02,
+          "properties": {}
+        }
+      ],
+      "background": "Outlander",
+      "alignment": "True Neutral",
+      "personality_traits": "Enigmatic and detached, with eyes that seem to hold ancient secrets.",
+      "ideals": "Freedom above all else\u2014no master, no binding oaths.",
+      "bonds": "Bound by a pact with a capricious fey lord encountered deep in the woods.",
+      "flaws": "Prone to reckless curiosity, often ignoring danger in pursuit of knowledge.",
+      "conditions": [],
+      "concentration": null,
+      "death_saves": {
+        "successes": 0,
+        "failures": 0
+      },
+      "is_player": true
+    }
+  ]
+}

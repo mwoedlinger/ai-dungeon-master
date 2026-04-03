@@ -1,0 +1,74 @@
+{
+  "characters": [
+    {
+      "id": "aldric",
+      "name": "Aldric Stonemantle",
+      "race": "Human",
+      "class_name": "Fighter",
+      "level": 3,
+      "xp": 900,
+      "ability_scores": {
+        "STR": 16,
+        "DEX": 12,
+        "CON": 14,
+        "INT": 10,
+        "WIS": 10,
+        "CHA": 10
+      },
+      "hp": 28,
+      "max_hp": 28,
+      "ac": 16,
+      "proficiency_bonus": 2,
+      "skill_proficiencies": ["Athletics", "Perception"],
+      "weapon_proficiencies": ["martial", "simple"],
+      "armor_proficiencies": ["light", "medium", "heavy", "shields"],
+      "saving_throw_proficiencies": ["STR", "CON"],
+      "hit_dice_remaining": 3,
+      "hit_die_type": "d10",
+      "weapons": [
+        {
+          "name": "Longsword",
+          "damage_dice": "1d8",
+          "damage_type": "slashing"
+        }
+      ],
+      "armor": {
+        "name": "Chain Mail",
+        "base_ac": 16,
+        "armor_type": "heavy"
+      },
+      "is_player": true
+    },
+    {
+      "id": "zara",
+      "name": "Zara Moonwhisper",
+      "race": "Half-Elf",
+      "class_name": "Wizard",
+      "level": 3,
+      "xp": 900,
+      "ability_scores": {
+        "STR": 8,
+        "DEX": 14,
+        "CON": 12,
+        "INT": 16,
+        "WIS": 12,
+        "CHA": 14
+      },
+      "hp": 19,
+      "max_hp": 19,
+      "ac": 13,
+      "proficiency_bonus": 2,
+      "skill_proficiencies": ["Arcana", "History", "Investigation"],
+      "weapon_proficiencies": ["simple"],
+      "armor_proficiencies": ["light"],
+      "saving_throw_proficiencies": ["INT", "WIS"],
+      "spell_slots": {"1": 4, "2": 2},
+      "max_spell_slots": {"1": 4, "2": 2},
+      "spellcasting_ability": "INT",
+      "known_spells": ["Fire Bolt", "Magic Missile", "Fireball", "Shield", "Mage Armor"],
+      "hit_dice_remaining": 3,
+      "hit_die_type": "d6",
+      "is_player": true
+    }
+  ]
+}

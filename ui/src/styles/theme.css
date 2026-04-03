@@ -1,0 +1,386 @@
+@import "tailwindcss";
+
+@theme {
+  /* Deep, rich dark fantasy palette */
+  --color-bg: #0d0f1a;
+  --color-bg-warm: #120e14;
+  --color-surface: #161824;
+  --color-surface-elevated: #1e2030;
+  --color-surface-glass: #1a1c2e;
+  --color-border: #2a2d42;
+  --color-border-subtle: #1f2236;
+  --color-border-ornate: #3d3552;
+
+  /* Warm parchment-tinted text */
+  --color-text-primary: #e8dfd0;
+  --color-text-secondary: #9e97ab;
+  --color-text-mechanical: #6b6580;
+
+  /* Signature accents */
+  --color-accent: #6ecac0;
+  --color-accent-glow: #4ecdc4;
+  --color-gold: #d4a843;
+  --color-gold-light: #e8c96a;
+  --color-gold-dim: #8a7434;
+
+  /* Game-specific with more depth */
+  --color-danger: #c93545;
+  --color-danger-glow: #ff4555;
+  --color-heal: #3ebd6a;
+  --color-heal-glow: #4ade80;
+  --color-magic: #a855f7;
+  --color-magic-glow: #c084fc;
+  --color-crit: #ec4899;
+  --color-crit-glow: #f472b6;
+  --color-slot-available: #6391ef;
+  --color-slot-spent: #2a2d42;
+
+  /* Atmospheric */
+  --color-ember: #c2440c;
+  --color-frost: #38bdf8;
+  --color-shadow: #1a0e2e;
+}
+
+/* ─── Base ─── */
+body {
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  margin: 0;
+  min-height: 100vh;
+}
+
+/* Subtle noise texture overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.015;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-mechanical);
+}
+
+/* ─── Display font for headings ─── */
+.font-display {
+  font-family: 'Cinzel', 'Crimson Text', serif;
+  letter-spacing: 0.08em;
+}
+
+.font-display-decorative {
+  font-family: 'Cinzel Decorative', 'Cinzel', serif;
+  letter-spacing: 0.12em;
+}
+
+/* ─── Ornate borders & frames ─── */
+.ornate-border {
+  position: relative;
+  border: 1px solid var(--color-border-ornate);
+}
+.ornate-border::before,
+.ornate-border::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: var(--color-gold-dim);
+  pointer-events: none;
+}
+.ornate-border::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid;
+  border-left: 2px solid;
+}
+.ornate-border::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid;
+  border-right: 2px solid;
+}
+
+/* Corner accents for cards */
+.corner-accents {
+  position: relative;
+}
+.corner-accents::before,
+.corner-accents::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  pointer-events: none;
+  opacity: 0.4;
+}
+.corner-accents::before {
+  top: -1px;
+  left: -1px;
+  border-top: 1.5px solid var(--color-gold-dim);
+  border-left: 1.5px solid var(--color-gold-dim);
+}
+.corner-accents::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 1.5px solid var(--color-gold-dim);
+  border-right: 1.5px solid var(--color-gold-dim);
+}
+
+/* ─── Glow effects ─── */
+.glow-accent {
+  box-shadow: 0 0 20px rgba(78, 205, 196, 0.1), inset 0 1px 0 rgba(78, 205, 196, 0.05);
+}
+.glow-gold {
+  box-shadow: 0 0 20px rgba(212, 168, 67, 0.1), inset 0 1px 0 rgba(212, 168, 67, 0.05);
+}
+.glow-danger {
+  box-shadow: 0 0 25px rgba(201, 53, 69, 0.15), inset 0 1px 0 rgba(201, 53, 69, 0.05);
+}
+.glow-magic {
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.1), inset 0 1px 0 rgba(168, 85, 247, 0.05);
+}
+
+.text-glow-accent {
+  text-shadow: 0 0 12px rgba(78, 205, 196, 0.4);
+}
+.text-glow-gold {
+  text-shadow: 0 0 12px rgba(212, 168, 67, 0.4);
+}
+.text-glow-danger {
+  text-shadow: 0 0 12px rgba(255, 69, 85, 0.5);
+}
+.text-glow-magic {
+  text-shadow: 0 0 12px rgba(168, 85, 247, 0.4);
+}
+
+/* ─── Dividers ─── */
+.divider-ornate {
+  position: relative;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-gold-dim), transparent);
+  margin: 1rem 0;
+}
+.divider-ornate::after {
+  content: '◆';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 8px;
+  color: var(--color-gold-dim);
+  background: var(--color-surface);
+  padding: 0 8px;
+}
+
+/* ─── Prose styling ─── */
+.prose-narrative {
+  font-family: 'Crimson Text', Georgia, serif;
+  font-size: 17px;
+  line-height: 1.8;
+  color: var(--color-text-primary);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.prose-narrative .drop-cap::first-letter {
+  font-family: 'Cinzel Decorative', 'Cinzel', serif;
+  font-size: 3.2em;
+  float: left;
+  line-height: 0.8;
+  margin-right: 8px;
+  margin-top: 4px;
+  color: var(--color-gold);
+  text-shadow: 0 0 8px rgba(212, 168, 67, 0.3);
+}
+
+/* ─── Ambient background effects ─── */
+.bg-atmosphere {
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(168, 85, 247, 0.03) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 20%, rgba(78, 205, 196, 0.02) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 80%, rgba(212, 168, 67, 0.02) 0%, transparent 50%),
+    var(--color-bg);
+}
+
+.bg-vignette::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.4) 100%);
+  z-index: 1;
+}
+
+/* ─── Animations ─── */
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes dice-bounce {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-slow {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes combat-pulse {
+  0%, 100% { border-color: rgba(201, 53, 69, 0.3); }
+  50% { border-color: rgba(201, 53, 69, 0.6); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes ember-drift {
+  0% { transform: translateY(0) scale(1); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(-60px) scale(0.5); opacity: 0; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.35s ease-out;
+}
+
+.animate-fade-in-slow {
+  animation: fade-in-slow 0.8s ease-out;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.5s ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+.animate-dice-bounce {
+  animation: dice-bounce 0.3s ease-out;
+}
+
+.animate-cursor-blink {
+  animation: cursor-blink 1s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background-size: 200% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+.animate-combat-pulse {
+  animation: combat-pulse 2s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* ─── Interactive states ─── */
+.btn-primary {
+  background: linear-gradient(135deg, rgba(78, 205, 196, 0.15), rgba(78, 205, 196, 0.05));
+  border: 1px solid rgba(78, 205, 196, 0.25);
+  color: var(--color-accent);
+  transition: all 0.2s ease;
+}
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(78, 205, 196, 0.25), rgba(78, 205, 196, 0.1));
+  border-color: rgba(78, 205, 196, 0.5);
+  box-shadow: 0 0 20px rgba(78, 205, 196, 0.1);
+}
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  transition: all 0.2s ease;
+}
+.btn-ghost:hover:not(:disabled) {
+  border-color: rgba(78, 205, 196, 0.3);
+  color: var(--color-accent);
+  background: rgba(78, 205, 196, 0.05);
+}
+.btn-ghost:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ─── Card surfaces ─── */
+.card {
+  background: linear-gradient(180deg, var(--color-surface-elevated), var(--color-surface));
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.card-hover {
+  transition: all 0.2s ease;
+}
+.card-hover:hover {
+  border-color: var(--color-border-ornate);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* ─── Selection styling ─── */
+::selection {
+  background: rgba(78, 205, 196, 0.25);
+  color: var(--color-text-primary);
+}
+
+/* ─── Focus styles ─── */
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 1px rgba(78, 205, 196, 0.15), 0 0 12px rgba(78, 205, 196, 0.08);
+}
