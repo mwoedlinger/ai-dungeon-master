@@ -207,6 +207,10 @@ def ability_check(
         # Jack of All Trades: add half proficiency to non-proficient checks
         modifier += char.proficiency_bonus // 2
 
+    # Nat flags reflect the actual die face, before Reliable Talent adjustment
+    nat_20 = raw == 20
+    nat_1 = raw == 1
+
     # Reliable Talent: Rogue 11+ treats d20 < 10 as 10 for proficient checks
     if is_proficient and char.class_name == "Rogue" and char.level >= 11:
         raw = max(raw, 10)
@@ -218,8 +222,8 @@ def ability_check(
         total=total,
         dc=dc,
         success=total >= dc,
-        nat_20=raw == 20,
-        nat_1=raw == 1,
+        nat_20=nat_20,
+        nat_1=nat_1,
     )
 
 
@@ -248,6 +252,50 @@ def saving_throw(
         nat_20=raw == 20,
         nat_1=raw == 1,
     )
+
+
+# SRD weapon categories for proficiency checks. Names not in either set
+# (homebrew, named magic weapons) are treated as proficient — the check only
+# applies where the weapon is classifiable.
+_SIMPLE_WEAPONS = frozenset({
+    "club", "dagger", "greatclub", "handaxe", "javelin", "light hammer",
+    "mace", "quarterstaff", "sickle", "spear", "light crossbow", "dart",
+    "shortbow", "sling", "unarmed strike",
+})
+_MARTIAL_WEAPONS = frozenset({
+    "battleaxe", "flail", "glaive", "greataxe", "greatsword", "halberd",
+    "lance", "longsword", "maul", "morningstar", "pike", "rapier",
+    "scimitar", "shortsword", "trident", "war pick", "warhammer", "whip",
+    "blowgun", "hand crossbow", "heavy crossbow", "longbow", "net",
+})
+
+
+def is_proficient_with_weapon(char: Character, weapon) -> bool:
+    """Check weapon proficiency by name or simple/martial category.
+
+    An empty proficiency list means unrestricted (monsters, legacy data).
+    Unclassifiable weapon names default to proficient.
+    """
+    profs = {p.lower() for p in char.weapon_proficiencies}
+    if not profs:
+        return True
+    name = weapon.name.lower()
+    if name in profs or f"{name}s" in profs or name.rstrip("s") in profs:
+        return True
+    if name in _SIMPLE_WEAPONS:
+        return "simple" in profs or "simple weapons" in profs
+    if name in _MARTIAL_WEAPONS:
+        return "martial" in profs or "martial weapons" in profs
+    return True  # unknown weapon name — can't classify, don't penalize
+
+
+def effective_ac(target: Character) -> int:
+    """Target AC including attuned magic armor/shield bonuses."""
+    ac = target.ac
+    for mi in getattr(target, "attuned_items", []):
+        if mi.item_type in ("armor", "shield"):
+            ac += mi.bonus
+    return ac
 
 
 def attack_roll(
@@ -295,15 +343,12 @@ def attack_roll(
             ability_mod = attacker.ability_scores.modifier("DEX")
         else:
             ability_mod = attacker.ability_scores.modifier("STR")
-        attack_bonus = ability_mod + attacker.proficiency_bonus + magic_attack_bonus
+        prof_bonus = attacker.proficiency_bonus if is_proficient_with_weapon(attacker, weapon) else 0
+        attack_bonus = ability_mod + prof_bonus + magic_attack_bonus
 
-    # Magic armor bonus on target
-    effective_ac = target.ac
-    for mi in getattr(target, "attuned_items", []):
-        if mi.item_type in ("armor", "shield"):
-            effective_ac += mi.bonus
+    target_ac = effective_ac(target)
 
-    hits = is_crit or (not is_nat1 and raw + attack_bonus >= effective_ac)
+    hits = is_crit or (not is_nat1 and raw + attack_bonus >= target_ac)
 
     damage: int | None = None
     if hits:
@@ -318,7 +363,7 @@ def attack_roll(
         roll=roll,
         attack_bonus=attack_bonus,
         total_attack=raw + attack_bonus,
-        target_ac=effective_ac,
+        target_ac=target_ac,
         hits=hits,
         is_crit=is_crit,
         is_nat1=is_nat1,
@@ -422,30 +467,40 @@ def encumbrance_status(char: Character) -> dict:
 def apply_damage(target: Character, amount: int, damage_type: str) -> dict:
     """Apply damage accounting for temp HP, resistances, unconsciousness.
 
-    HP is always clamped to 0 (no negatives). Unconscious/dead conditions
-    are applied consistently regardless of the damage path.
+    Resistances/immunities apply to all creatures (players and monsters).
+    The concentration DC uses damage taken after resistance (per RAW), and
+    damage to a stable character at 0 HP knocks them back into dying.
+    HP is always clamped to 0 (no negatives).
     """
     if amount < 0:
         return {"success": False, "error": "Damage amount must be non-negative."}
 
-    actual = amount
+    if damage_type in target.damage_immunities:
+        return {"damage_dealt": 0, "hp_remaining": target.hp, "note": f"immune to {damage_type}"}
 
-    if isinstance(target, Monster):
-        if damage_type in target.damage_immunities:
-            return {"damage_dealt": 0, "hp_remaining": target.hp, "note": f"immune to {damage_type}"}
-        if damage_type in target.damage_resistances:
-            actual = actual // 2
+    actual = amount
+    if damage_type in target.damage_resistances:
+        actual = actual // 2
+
+    # "Damage taken" for concentration purposes is post-resistance,
+    # pre-temp-HP (temp HP loss still counts as taking damage).
+    damage_taken = actual
 
     if target.temp_hp > 0:
         absorbed = min(target.temp_hp, actual)
         target.temp_hp -= absorbed
         actual -= absorbed
 
+    was_at_zero = target.hp == 0
     target.hp = max(0, target.hp - actual)
     result: dict = {"damage_dealt": actual, "hp_remaining": target.hp}
 
     if target.hp == 0:
         if target.is_player:
+            # Damage to a stable character restarts the dying state
+            if was_at_zero and damage_taken > 0 and "stable" in target.conditions:
+                target.conditions.remove("stable")
+                result["stable_broken"] = True
             if "unconscious" not in target.conditions:
                 target.conditions.append("unconscious")
             result["unconscious"] = True
@@ -456,9 +511,12 @@ def apply_damage(target: Character, amount: int, damage_type: str) -> dict:
             if "dead" not in target.conditions:
                 target.conditions.append("dead")
             result["dead"] = True
-    elif target.concentration and target.is_player:
-        # Auto-roll concentration save (CON save, DC = max(10, damage/2))
-        con_dc = max(10, amount // 2)
+            if target.concentration:
+                target.concentration = None
+                result["concentration_broken"] = True
+    elif target.concentration and damage_taken > 0:
+        # Auto-roll concentration save (CON save, DC = max(10, damage_taken/2))
+        con_dc = max(10, damage_taken // 2)
         con_save = saving_throw(target, "CON", con_dc)
         result["concentration_check"] = {
             "dc": con_dc,
@@ -474,16 +532,19 @@ def apply_damage(target: Character, amount: int, damage_type: str) -> dict:
 
 
 def apply_healing(target: Character, amount: int) -> dict:
-    """Heal a character. Revives unconscious players."""
-    was_unconscious = target.hp == 0 and "unconscious" in target.conditions
+    """Heal a character. Revives unconscious or stable characters at 0 HP."""
+    was_down = target.hp == 0 and (
+        "unconscious" in target.conditions or "stable" in target.conditions
+    )
     old_hp = target.hp
     target.hp = min(target.max_hp, target.hp + amount)
     actual_healed = target.hp - old_hp
-    if was_unconscious:
-        if "unconscious" in target.conditions:
-            target.conditions.remove("unconscious")
+    if was_down and actual_healed > 0:
+        for cond in ("unconscious", "stable"):
+            if cond in target.conditions:
+                target.conditions.remove(cond)
         target.death_saves = DeathSaves()
-    return {"healed": actual_healed, "hp_now": target.hp, "revived": was_unconscious}
+    return {"healed": actual_healed, "hp_now": target.hp, "revived": was_down and actual_healed > 0}
 
 
 # ---------------------------------------------------------------------------

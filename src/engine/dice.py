@@ -24,19 +24,21 @@ def roll_dice(
         advantage = False
         disadvantage = False
 
-    # Parse keep-highest notation: e.g. "4d6kh3"
-    kh_match = re.fullmatch(r"(\d*)d(\d+)kh(\d+)", expr)
+    # Parse keep-highest notation: e.g. "4d6kh3" or "4d6kh3+2"
+    kh_match = re.fullmatch(r"(\d*)d(\d+)kh(\d+)\s*([+-]\s*\d+)?", expr)
     if kh_match:
         n = int(kh_match.group(1)) if kh_match.group(1) else 1
         sides = int(kh_match.group(2))
         keep = int(kh_match.group(3))
+        mod_str = kh_match.group(4)
+        modifier = int(mod_str.replace(" ", "")) if mod_str else 0
         rolls = [random.randint(1, sides) for _ in range(max(n, 1))]
         kept = sorted(rolls, reverse=True)[:keep]
-        total = sum(kept)
+        total = sum(kept) + modifier
         return DiceResult(
             expression=expr,
             individual_rolls=rolls,
-            modifier=0,
+            modifier=modifier,
             total=total,
             advantage=False,
             disadvantage=False,

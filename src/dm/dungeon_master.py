@@ -24,13 +24,31 @@ MAX_TOOL_ITERATIONS = 15
 _MAX_RETRIES = 3
 _RETRY_BASE_DELAY = 1.0  # seconds
 
-# Approximate cost per million tokens by provider/model (USD)
-_COST_PER_M_TOKENS: dict[str, dict[str, float]] = {
-    "anthropic": {"input": 3.0, "output": 15.0},
-    "deepseek": {"input": 0.27, "output": 1.10},
-    "gemini": {"input": 0.075, "output": 0.30},
-    "ollama": {"input": 0.0, "output": 0.0},
+# Approximate cost per million tokens (USD): (input, output, cache_read, cache_write).
+# Matched by substring against the actual model name, most specific first;
+# provider entries act as fallbacks when no model substring matches.
+_MODEL_PRICING: list[tuple[str, tuple[float, float, float, float]]] = [
+    ("claude-fable-5", (10.0, 50.0, 1.0, 12.5)),
+    ("claude-opus", (5.0, 25.0, 0.50, 6.25)),
+    ("claude-sonnet", (3.0, 15.0, 0.30, 3.75)),
+    ("claude-haiku", (1.0, 5.0, 0.10, 1.25)),
+    ("deepseek", (0.27, 1.10, 0.07, 0.27)),
+    ("gemini", (0.10, 0.40, 0.025, 0.10)),
+]
+_PROVIDER_FALLBACK_PRICING: dict[str, tuple[float, float, float, float]] = {
+    "anthropic": (3.0, 15.0, 0.30, 3.75),
+    "deepseek": (0.27, 1.10, 0.07, 0.27),
+    "gemini": (0.10, 0.40, 0.025, 0.10),
+    "ollama": (0.0, 0.0, 0.0, 0.0),
 }
+
+
+def _pricing_for(provider: str, model: str) -> tuple[float, float, float, float]:
+    model = (model or "").lower()
+    for substring, rates in _MODEL_PRICING:
+        if substring in model:
+            return rates
+    return _PROVIDER_FALLBACK_PRICING.get(provider, (0.0, 0.0, 0.0, 0.0))
 
 
 @dataclass
@@ -42,6 +60,7 @@ class SessionTokenStats:
     total_cache_creation: int = 0
     api_calls: int = 0
     provider: str = ""
+    model: str = ""
 
     def record(self, usage: TokenUsage) -> None:
         self.total_input += usage.input_tokens
@@ -52,11 +71,15 @@ class SessionTokenStats:
 
     @property
     def estimated_cost_usd(self) -> float:
-        rates = _COST_PER_M_TOKENS.get(self.provider, {"input": 0, "output": 0})
-        return (
-            self.total_input * rates["input"] / 1_000_000
-            + self.total_output * rates["output"] / 1_000_000
+        in_rate, out_rate, cache_read_rate, cache_write_rate = _pricing_for(
+            self.provider, self.model,
         )
+        return (
+            self.total_input * in_rate
+            + self.total_output * out_rate
+            + self.total_cache_read * cache_read_rate
+            + self.total_cache_creation * cache_write_rate
+        ) / 1_000_000
 
     def summary(self) -> dict:
         return {
@@ -87,10 +110,13 @@ def _is_retryable(exc: Exception) -> bool:
 def _is_context_overflow(exc: Exception) -> bool:
     """Check if an exception indicates the context window was exceeded."""
     msg = str(exc).lower()
+    # Note: deliberately NOT matching "max_tokens" — errors about the
+    # max_tokens *parameter* are validation errors, not context overflow.
     return any(s in msg for s in (
         "context length", "context window", "token limit",
-        "max_tokens", "too many tokens", "maximum context",
+        "too many tokens", "maximum context",
         "content too large", "request too large",
+        "prompt is too long",
     ))
 
 
@@ -131,7 +157,9 @@ class DungeonMaster:
             backend=self.backend, campaign=campaign,
         )
         self.debug = debug
-        self.token_stats = SessionTokenStats(provider=provider)
+        self.token_stats = SessionTokenStats(
+            provider=provider, model=getattr(self.backend, "model", "") or "",
+        )
 
         # Debug callback for real-time tool call display
         self._on_tool_call: Callable[[str, dict, dict], None] | None = None
@@ -155,12 +183,7 @@ class DungeonMaster:
         logger.debug("Player input: %s", player_input[:100])
         self.context_manager.add_message({"role": "user", "content": player_input})
 
-        # Collect narrative text from intermediate iterations (those with
-        # tool calls).  The LLM often emits meaningful narrative alongside
-        # tool calls (e.g. "You receive a map" before calling add_item).
-        # Without accumulation this text is silently lost because only the
-        # final, tool-free response is returned to the player.
-        intermediate_text_parts: list[str] = []
+        all_text_parts: list[str] = []
 
         for iteration in range(MAX_TOOL_ITERATIONS):
             api_kwargs = dict(
@@ -177,22 +200,28 @@ class DungeonMaster:
                 self.context_manager._estimate_tokens(),
             )
 
-            # Log full LLM I/O for post-session debugging
             if logger.isEnabledFor(logging.DEBUG):
                 self._log_llm_request(api_kwargs, iteration)
 
-            # Always use non-streaming first. This prevents the LLM's
-            # intermediate reasoning (before tool calls) from leaking into
-            # the player-facing narration.
+            # Use streaming for all iterations — text flows to the player
+            # as it generates, with natural pauses during tool resolution.
             try:
-                result = _call_with_retry(self.backend.complete, **api_kwargs)
+                result = _call_with_retry(
+                    self.backend.stream_complete,
+                    on_text_chunk=on_text_chunk,
+                    **api_kwargs,
+                )
             except Exception as exc:
                 if _is_context_overflow(exc):
                     logger.warning("Context overflow detected, triggering emergency compression")
                     self.context_manager.compress_if_needed(self.backend, force=True)
                     try:
                         api_kwargs["messages"] = self.context_manager.get_messages_for_api(self.backend)
-                        result = _call_with_retry(self.backend.complete, **api_kwargs)
+                        result = _call_with_retry(
+                            self.backend.stream_complete,
+                            on_text_chunk=on_text_chunk,
+                            **api_kwargs,
+                        )
                     except Exception:
                         return "[The DM's thoughts are overwhelmed — too much has happened. Please try a shorter action.]"
                 else:
@@ -211,31 +240,17 @@ class DungeonMaster:
             if logger.isEnabledFor(logging.DEBUG):
                 self._log_llm_response(result, iteration)
 
+            if result.text:
+                all_text_parts.append(result.text)
+
             if not result.tool_calls:
                 self.context_manager.add_message(result.raw_assistant_message)
                 self.context_manager.compact_tool_pairs()
                 self.context_manager.compress_if_needed(self.backend)
-                final_text = result.text or ""
+                return "\n\n".join(all_text_parts) or "[The DM pauses thoughtfully...]"
 
-                # Combine intermediate narrative with final response
-                if intermediate_text_parts:
-                    combined = "\n\n".join(intermediate_text_parts)
-                    if final_text:
-                        combined += "\n\n" + final_text
-                    text = combined
-                else:
-                    text = final_text or "[The DM pauses thoughtfully...]"
-
-                # Deliver final narration via callback for streaming display
-                if on_text_chunk and text:
-                    self._deliver_text(text, on_text_chunk)
-                return text
-
-            # Tool-call turn — collect any narrative text emitted alongside tools
-            if result.text and result.text.strip():
-                intermediate_text_parts.append(result.text.strip())
-                logger.debug("Intermediate narrative (iter %d): %s", iteration, result.text[:200])
-
+            # Tool-call turn — text was already streamed to the player
+            logger.debug("Intermediate narrative (iter %d): %s", iteration, (result.text or "")[:200])
             self.context_manager.add_message(result.raw_assistant_message)
 
             tool_results = []
@@ -249,23 +264,27 @@ class DungeonMaster:
                     else f"FAILED: {outcome.get('error', '?')}",
                 )
 
-                # Debug callback for real-time display
                 if self._on_tool_call:
                     self._on_tool_call(tc.name, tc.input, outcome)
 
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": tc.id,
-                    "name": tc.name,       # kept for Gemini; stripped by Anthropic backend
+                    "name": tc.name,
                     "content": json.dumps(outcome),
                 })
 
             self.context_manager.add_message({"role": "user", "content": tool_results})
-            # Loop: LLM processes results and either narrates or calls more tools
 
-        # Exceeded max iterations — force a narrative response
         logger.warning("Tool loop hit max iterations (%d)", MAX_TOOL_ITERATIONS)
-        return "[The DM gathers their thoughts after a flurry of actions and prepares to continue...]"
+        # History currently ends with a user message of tool results. Close the
+        # turn with an assistant message so the next player input doesn't create
+        # two consecutive user turns (which the API rejects).
+        fallback = "[The DM gathers their thoughts after a flurry of actions and prepares to continue...]"
+        self.context_manager.add_message({"role": "assistant", "content": fallback})
+        self.context_manager.compact_tool_pairs()
+        self.context_manager.compress_if_needed(self.backend)
+        return "\n\n".join(all_text_parts) or fallback
 
     def _log_llm_request(self, api_kwargs: dict, iteration: int) -> None:
         """Log the full LLM request payload for post-session debugging."""
@@ -306,15 +325,60 @@ class DungeonMaster:
             json.dumps(result.raw_assistant_message, indent=2, default=str)[:20000],
         )
 
-    @staticmethod
-    def _deliver_text(
-        text: str,
-        callback: Callable[[str], None],
-        chunk_size: int = 12,
-    ) -> None:
-        """Deliver text to the streaming callback in small chunks."""
-        for i in range(0, len(text), chunk_size):
-            callback(text[i : i + chunk_size])
+    def generate_story_summary(self) -> str:
+        """Generate a two-section story summary: overall arc + recent events."""
+        journal = self.game_state.journal
+
+        # Gather all available context for the LLM
+        parts: list[str] = []
+        if journal.global_summary:
+            parts.append(f"Campaign summary so far:\n{journal.global_summary}")
+        if journal.conversation_summary:
+            parts.append(f"Conversation summary:\n{journal.conversation_summary}")
+        if journal.location_summaries:
+            loc_lines = [f"  {lid}: {s}" for lid, s in journal.location_summaries.items()]
+            parts.append("Location notes:\n" + "\n".join(loc_lines))
+        if journal.npc_summaries:
+            npc_lines = [f"  {nid}: {s}" for nid, s in journal.npc_summaries.items()]
+            parts.append("NPC interactions:\n" + "\n".join(npc_lines))
+
+        all_entries = journal.get_recent_entries(limit=30)
+        if all_entries:
+            entry_lines = []
+            for e in all_entries:
+                icon = "★" if e.importance == "major" else "·"
+                loc = f" [{e.location_id}]" if e.location_id else ""
+                entry_lines.append(f"  {icon} {e.event}{loc}")
+            parts.append("Event log (oldest→newest):\n" + "\n".join(entry_lines))
+
+        # Recent conversation messages (last ~10 user/assistant turns)
+        recent_msgs = self.context_manager.full_history[-20:]
+        convo_lines = []
+        for msg in recent_msgs:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if isinstance(content, str) and content.strip() and role in ("user", "assistant"):
+                convo_lines.append(f"  [{role}] {content[:300]}")
+        if convo_lines:
+            parts.append("Recent conversation:\n" + "\n".join(convo_lines))
+
+        if not parts:
+            return "The adventure has barely begun — there is little to summarize yet."
+
+        system = (
+            "You are a scribe chronicling a D&D 5e adventure. Given the campaign data below, "
+            "write a story summary in two sections:\n\n"
+            "## The Story So Far\n"
+            "A concise overview of the entire adventure arc — who the heroes are, "
+            "what they set out to do, and the major events that have shaped the story.\n\n"
+            "## Recent Events\n"
+            "A focused summary of what happened most recently — the last few encounters, "
+            "decisions, and developments.\n\n"
+            "Write in past tense, third person. Be vivid but concise (aim for ~150 words per section). "
+            "Use markdown headers exactly as shown above."
+        )
+        messages = [{"role": "user", "content": "\n\n".join(parts) + "\n\nWrite the summary."}]
+        return self.backend.compress(system=system, messages=messages, max_tokens=800)
 
     def generate_session_recap(self) -> str:
         """Generate a narrative recap of significant session events."""

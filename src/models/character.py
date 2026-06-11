@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AbilityScores(BaseModel):
@@ -106,8 +106,11 @@ class Character(BaseModel):
 
     conditions: list[str] = []
     concentration: str | None = None
-    death_saves: DeathSaves = DeathSaves()
+    death_saves: DeathSaves = Field(default_factory=DeathSaves)
     is_player: bool = True
+
+    damage_resistances: list[str] = []
+    damage_immunities: list[str] = []
 
     @property
     def spell_save_dc(self) -> int | None:

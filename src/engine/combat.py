@@ -18,8 +18,12 @@ def start_combat(game_state, participant_ids: list[str]) -> dict:
         init = raw + char.ability_scores.modifier("DEX")
         initiatives.append((cid, init))
 
-    # Sort descending; ties broken by DEX modifier then name (deterministic)
-    initiatives.sort(key=lambda x: (x[1], game_state.get_character(x[0]).ability_scores.modifier("DEX")), reverse=True)
+    # Sort by initiative descending; ties broken by DEX modifier (desc) then name (asc)
+    initiatives.sort(key=lambda x: (
+        -x[1],
+        -game_state.get_character(x[0]).ability_scores.modifier("DEX"),
+        game_state.get_character(x[0]).name,
+    ))
 
     combatants = {}
     for cid, init in initiatives:
@@ -56,31 +60,48 @@ def end_turn(game_state) -> dict:
     if not combat.active:
         return {"success": False, "error": "No active combat."}
 
+    def _safe_get(cid):
+        """Combatants can vanish mid-combat (stale state); tolerate it."""
+        try:
+            return game_state.get_character(cid)
+        except KeyError:
+            return None
+
     # Tick condition durations for the character whose turn just ended
     current_id = combat.current_combatant_id
-    current_combatant = combat.combatants[current_id]
-    current_char = game_state.get_character(current_id)
+    current_combatant = combat.combatants.get(current_id)
+    current_char = _safe_get(current_id)
 
     expired = []
-    for condition, duration in list(current_combatant.condition_durations.items()):
-        if duration is not None:
-            if duration <= 1:
-                expired.append(condition)
-                del current_combatant.condition_durations[condition]
-            else:
-                current_combatant.condition_durations[condition] = duration - 1
+    if current_combatant is not None:
+        for condition, duration in list(current_combatant.condition_durations.items()):
+            if duration is not None:
+                if duration <= 1:
+                    expired.append(condition)
+                    del current_combatant.condition_durations[condition]
+                else:
+                    current_combatant.condition_durations[condition] = duration - 1
 
     # Safe condition removal — use list copy + discard pattern
-    for cond in expired:
-        try:
-            current_char.conditions.remove(cond)
-        except ValueError:
-            pass  # Already removed (e.g. by healing or another effect)
+    if current_char is not None:
+        for cond in expired:
+            try:
+                current_char.conditions.remove(cond)
+            except ValueError:
+                pass  # Already removed (e.g. by healing or another effect)
 
-    # Check if ALL combatants are dead/incapacitated — prevent infinite skip loop
+    def _is_out_of_fight(char) -> bool:
+        """Dead, missing, or a downed monster. Unconscious PCs still take
+        turns (they roll death saves), so only "dead" removes a PC."""
+        if char is None or "dead" in char.conditions:
+            return True
+        return not char.is_player and char.hp <= 0
+
+    # Check if ALL combatants are down — prevent infinite skip loop.
+    # Unconscious/stable PCs count as down for combat-over purposes.
     n = len(combat.turn_order)
     all_down = all(
-        game_state.get_character(cid).hp <= 0 or "dead" in game_state.get_character(cid).conditions
+        (c := _safe_get(cid)) is None or c.hp <= 0 or "dead" in c.conditions
         for cid in combat.turn_order
     )
     if all_down:
@@ -92,18 +113,16 @@ def end_turn(game_state) -> dict:
             "expired_conditions": expired,
         }
 
-    # Advance turn, skipping dead combatants (0 HP)
+    # Advance turn, skipping combatants that are out of the fight
     next_index = (combat.current_turn_index + 1) % n
     new_round = combat.round
     if next_index == 0:
         new_round += 1
 
-    # Skip combatants that are dead (0 HP or have "dead" condition)
     skipped = 0
     while skipped < n:
         cid = combat.turn_order[next_index]
-        char = game_state.get_character(cid)
-        if char.hp > 0 and "dead" not in char.conditions:
+        if not _is_out_of_fight(_safe_get(cid)):
             break
         next_index = (next_index + 1) % n
         if next_index == 0:
@@ -173,10 +192,12 @@ def end_combat(game_state, xp_awarded: int) -> dict:
 
 
 def death_save(game_state, character_id: str) -> dict:
-    """Roll a death saving throw for an unconscious character."""
+    """Roll a death saving throw for an unconscious, dying character."""
     char = game_state.get_character(character_id)
     if "unconscious" not in char.conditions:
         return {"success": False, "error": f"{char.name} is not unconscious."}
+    if "stable" in char.conditions:
+        return {"success": False, "error": f"{char.name} is stable and no longer makes death saves."}
 
     roll = roll_dice("1d20")
     value = roll.individual_rolls[0]
@@ -189,8 +210,9 @@ def death_save(game_state, character_id: str) -> dict:
         result["failures"] = char.death_saves.failures
     elif value == 20:
         char.hp = 1
-        if "unconscious" in char.conditions:
-            char.conditions.remove("unconscious")
+        for cond in ("unconscious", "stable"):
+            if cond in char.conditions:
+                char.conditions.remove(cond)
         char.death_saves = type(char.death_saves)()  # reset
         result["outcome"] = "miraculous_recovery"
         result["hp_now"] = 1
@@ -204,8 +226,9 @@ def death_save(game_state, character_id: str) -> dict:
         result["failures"] = char.death_saves.failures
 
     if char.death_saves.successes >= 3:
-        if "unconscious" in char.conditions:
-            char.conditions.remove("unconscious")
+        # Stable but still unconscious at 0 HP (per RAW) — no more death saves
+        if "stable" not in char.conditions:
+            char.conditions.append("stable")
         char.death_saves.successes = 3  # cap
         result["stabilized"] = True
     elif char.death_saves.failures >= 3:

@@ -410,13 +410,48 @@ def apply_level_up(char: Character) -> dict:
 
 
 def _eval_scaling(formula: str, level: int, char: Character) -> int:
-    """Safely evaluate a scaling formula."""
-    # Build a safe namespace with level and ability modifiers
-    ns = {"level": level}
+    """Safely evaluate a scaling formula via a restricted AST walk.
+
+    Supports: int literals, +, -, *, /, //, unary -, parentheses, max(...),
+    and the names `level` / `<ABILITY>_mod`. No eval(), no builtins.
+    """
+    import ast
+
+    ns: dict[str, int] = {"level": level}
     if hasattr(char, "ability_scores"):
         for ability in ("STR", "DEX", "CON", "INT", "WIS", "CHA"):
             ns[f"{ability}_mod"] = char.ability_scores.modifier(ability)
-    return int(max(1, eval(formula, {"__builtins__": {"max": max}}, ns)))  # noqa: S307
+
+    def _eval(node: ast.AST) -> float:
+        match node:
+            case ast.Expression(body=body):
+                return _eval(body)
+            case ast.Constant(value=v) if isinstance(v, (int, float)):
+                return v
+            case ast.Name(id=name) if name in ns:
+                return ns[name]
+            case ast.BinOp(left=l, op=op, right=r):
+                lv, rv = _eval(l), _eval(r)
+                match op:
+                    case ast.Add():
+                        return lv + rv
+                    case ast.Sub():
+                        return lv - rv
+                    case ast.Mult():
+                        return lv * rv
+                    case ast.FloorDiv():
+                        return lv // rv
+                    case ast.Div():
+                        return lv / rv
+                raise ValueError(f"Unsupported operator in formula: {ast.dump(op)}")
+            case ast.UnaryOp(op=ast.USub(), operand=operand):
+                return -_eval(operand)
+            case ast.Call(func=ast.Name(id="max"), args=args, keywords=[]):
+                return max(_eval(a) for a in args)
+        raise ValueError(f"Unsupported expression in formula: {ast.dump(node)}")
+
+    tree = ast.parse(formula, mode="eval")
+    return int(max(1, _eval(tree)))
 
 
 def learn_spell(char: Character, spell_name: str, max_spell_level: int) -> dict:

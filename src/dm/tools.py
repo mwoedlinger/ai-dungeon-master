@@ -79,7 +79,7 @@ _DICE_AND_CHECK_TOOLS = [
 _COMBAT_TOOLS = [
     {
         "name": "start_combat",
-        "description": "Begin combat encounter. Rolls initiative for all participants and sets turn order.",
+        "description": "Begin combat encounter. Rolls initiative for all participants and sets turn order. NEVER call this while a combat is already active — it would re-roll initiative and duplicate monsters.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -964,6 +964,27 @@ class ToolDispatcher:
 
             # --- Combat ---
             case "start_combat":
+                if gs.combat.active:
+                    # Re-starting would re-roll initiative, reset the round
+                    # counter, and spawn duplicate monsters. Reorient the LLM.
+                    order = []
+                    for cid in gs.combat.turn_order:
+                        try:
+                            order.append(f"{gs.get_character(cid).name} [{cid}]")
+                        except KeyError:
+                            continue
+                    try:
+                        current = gs.get_character(gs.combat.current_combatant_id).name
+                    except KeyError:
+                        current = gs.combat.current_combatant_id
+                    return {
+                        "success": False,
+                        "error": "Combat is already active — do NOT call start_combat again. "
+                                 "Initiative has been rolled; continue the current fight.",
+                        "round": gs.combat.round,
+                        "turn_order": order,
+                        "current_turn": current,
+                    }
                 self._npc_sessions.clear()
                 participant_ids = list(inputs["participant_ids"])
                 # Spawn monster templates if provided
@@ -1426,6 +1447,19 @@ class ToolDispatcher:
                 item_name = inputs["item_name"]
                 if any(mi.name.lower() == item_name.lower() for mi in char.attuned_items):
                     return {"success": False, "error": f"{char.name} is already attuned to {item_name!r}."}
+                # The item must actually exist: in inventory, or equipped as a
+                # weapon/armor. Prevents conjuring magic items out of thin air.
+                has_item = (
+                    any(it.name.lower() == item_name.lower() for it in char.inventory)
+                    or any(w.name.lower() == item_name.lower() for w in char.weapons)
+                    or (char.armor is not None and char.armor.name.lower() == item_name.lower())
+                )
+                if not has_item:
+                    return {
+                        "success": False,
+                        "error": f"{char.name} does not possess {item_name!r}. "
+                                 "Add it first via claim_treasure or add_item, then attune.",
+                    }
                 magic_item = MagicItem(
                     name=item_name,
                     item_type=inputs["item_type"],
@@ -1524,6 +1558,21 @@ class ToolDispatcher:
                 }
                 if old_armor_name:
                     result["returned_to_inventory"] = old_armor_name
+                # Proficiency / strength warnings (5e: non-proficiency gives
+                # disadvantage on STR/DEX checks; low STR in heavy armor: -10 ft speed)
+                armor_profs = {p.lower() for p in char.armor_proficiencies}
+                if armor_profs and char.armor.armor_type.lower() not in armor_profs:
+                    result["warning"] = (
+                        f"{char.name} is not proficient with {char.armor.armor_type} armor: "
+                        "disadvantage on STR/DEX ability checks, saves, and attacks while worn."
+                    )
+                str_req = char.armor.strength_requirement
+                if str_req and char.ability_scores.STR < str_req:
+                    result["speed_penalty"] = 10
+                    result["strength_warning"] = (
+                        f"STR {char.ability_scores.STR} is below the requirement of {str_req}: "
+                        "speed reduced by 10 ft while worn."
+                    )
                 return result
 
             case "equip_shield":
@@ -1666,15 +1715,18 @@ class ToolDispatcher:
                 target = gs.get_character(inputs["target_id"])
                 npc_name = inputs["npc_name"]
                 if inputs.get("stabilize_only"):
-                    # Stabilize: set to 0 HP, remove unconscious, reset death saves
+                    # Stabilize: still unconscious at 0 HP, but stable — no more
+                    # death saves until damaged again.
                     if "unconscious" in target.conditions:
                         target.death_saves = type(target.death_saves)()
+                        if "stable" not in target.conditions:
+                            target.conditions.append("stable")
                         return {
                             "success": True,
                             "npc": npc_name,
                             "target": target.name,
                             "stabilized": True,
-                            "note": f"{npc_name} stabilizes {target.name}.",
+                            "note": f"{npc_name} stabilizes {target.name} — unconscious but no longer dying.",
                         }
                     return {"success": False, "error": f"{target.name} is not unconscious."}
                 amount = inputs.get("amount", 0)

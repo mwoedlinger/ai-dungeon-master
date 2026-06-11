@@ -76,6 +76,12 @@ def _restore_short_rest_resources(character: Character) -> dict[str, int]:
 
 def long_rest(character: Character) -> dict:
     """Full HP recovery, reset spell slots, restore all class resources, recover half hit dice."""
+    if "dead" in character.conditions:
+        return {
+            "success": False,
+            "error": f"{character.name} is dead and cannot benefit from a rest. "
+                     "Use resurrect_character instead.",
+        }
     character.hp = character.max_hp
     character.spell_slots = dict(character.max_spell_slots)
     recovered_dice = max(1, character.level // 2)
@@ -83,8 +89,17 @@ def long_rest(character: Character) -> dict:
         character.level,
         character.hit_dice_remaining + recovered_dice,
     )
-    # Only persistent conditions (like curses) survive a long rest
-    character.conditions = [c for c in character.conditions if c in ("cursed",)]
+    # Persistent conditions (curses) survive; exhaustion drops by ONE level (5e RAW);
+    # everything else is cleared.
+    new_conditions: list[str] = []
+    for cond in character.conditions:
+        if cond == "cursed":
+            new_conditions.append(cond)
+        elif cond.startswith("exhaustion_"):
+            level = int(cond.rsplit("_", 1)[1])
+            if level > 1:
+                new_conditions.append(f"exhaustion_{level - 1}")
+    character.conditions = new_conditions
     character.death_saves = DeathSaves()
     character.concentration = None
 

@@ -51,8 +51,8 @@ class TestConcentrationOnDamage:
         result = apply_damage(char, 10, "fire")
         assert "concentration_check" not in result
 
-    def test_monster_damage_no_concentration_check(self):
-        """Concentration checks only for player characters."""
+    def test_monster_damage_triggers_concentration_check(self):
+        """Concentrating monsters make concentration checks too (5e RAW)."""
         from src.models.monster import Monster
         m = Monster(
             id="m1", name="M", race="M", class_name="monster",
@@ -63,5 +63,8 @@ class TestConcentrationOnDamage:
             concentration="Hold Person",
         )
         result = apply_damage(m, 5, "fire")
-        # Monsters don't get concentration checks (is_player=False)
-        assert "concentration_check" not in result
+        assert "concentration_check" in result
+        assert result["concentration_check"]["dc"] == 10
+        # On a failed save the spell drops
+        if not result["concentration_check"]["success"]:
+            assert m.concentration is None

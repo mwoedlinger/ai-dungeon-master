@@ -4,7 +4,14 @@ from __future__ import annotations
 import re
 
 from src.engine.dice import roll_dice
-from src.engine.rules import apply_damage, apply_healing, saving_throw, apply_condition
+from src.engine.rules import (
+    _condition_modifiers,
+    apply_condition,
+    apply_damage,
+    apply_healing,
+    effective_ac,
+    saving_throw,
+)
 from src.models.character import Character
 from src.models.spells import SpellData, SpellResolution
 
@@ -84,6 +91,14 @@ def _save_with_legendary_resistance(target: Character, ability: str, dc: int):
 
 def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list[Character], cast_level: int) -> dict:
     """Resolve a spell's mechanical effects."""
+    # Validate cast level: a spell must be cast at its own level or higher
+    if spell.level > 0 and cast_level < spell.level:
+        return {
+            "success": False,
+            "error": f"{spell.name} is a level {spell.level} spell and cannot be cast "
+                     f"with a level {cast_level} slot.",
+        }
+
     # Validate spell slot
     if spell.level > 0:
         if cast_level not in caster.spell_slots or caster.spell_slots[cast_level] <= 0:
@@ -109,11 +124,13 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
         case SpellResolution.SAVE_DAMAGE:
             dc = caster.spell_save_dc or 8
             damage_expr = _apply_upcast(spell.damage_dice, spell, cast_level)
+            # AoE damage is rolled ONCE for all targets (5e RAW)
+            damage_rolled = roll_dice(damage_expr).total
             results = []
             for target in targets:
                 # Check legendary resistance first
                 save = _save_with_legendary_resistance(target, spell.save_ability or "DEX", dc)
-                damage = roll_dice(damage_expr).total
+                damage = damage_rolled
                 if save.success:
                     damage = 0 if spell.save_negates else damage // 2
                 dmg_result = apply_damage(target, damage, spell.damage_type or "force")
@@ -124,17 +141,23 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
                     "damage": dmg_result["damage_dealt"],
                     "hp_remaining": target.hp,
                 })
-            return {**base_result, "dc": dc, "targets": results}
+            return {**base_result, "dc": dc, "damage_rolled": damage_rolled, "targets": results}
 
         case SpellResolution.ATTACK_ROLL:
             results = []
+            sc_ability = caster.spellcasting_ability or "INT"
+            bonus = caster.ability_scores.modifier(sc_ability) + caster.proficiency_bonus
+            atk_flags = _condition_modifiers(caster)
             for target in targets:
-                atk = roll_dice("1d20")
-                sc_ability = caster.spellcasting_ability or "INT"
-                bonus = caster.ability_scores.modifier(sc_ability) + caster.proficiency_bonus
-                raw = atk.individual_rolls[0]
+                # Spell attacks respect the same condition advantage rules as weapon attacks
+                tgt_flags = _condition_modifiers(target)
+                advantage = atk_flags["attack_advantage"] or tgt_flags["attacked_advantage"]
+                disadvantage = atk_flags["attack_disadvantage"] or tgt_flags["attacked_disadvantage"]
+                atk = roll_dice("1d20", advantage=advantage, disadvantage=disadvantage)
+                raw = atk.kept_roll if atk.kept_roll is not None else atk.individual_rolls[0]
                 is_crit = raw == 20
-                hits = is_crit or (raw != 1 and raw + bonus >= target.ac)
+                target_ac = effective_ac(target)
+                hits = is_crit or (raw != 1 and raw + bonus >= target_ac)
                 damage = None
                 if hits:
                     # Use cantrip scaling for level 0 spells
@@ -142,10 +165,11 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
                         damage_expr = _get_cantrip_dice(spell, caster)
                     else:
                         damage_expr = _apply_upcast(spell.damage_dice, spell, cast_level)
-                    damage = roll_dice(damage_expr).total
+                    rolled = roll_dice(damage_expr).total
                     if is_crit:
-                        damage += roll_dice(damage_expr).total
-                    apply_damage(target, damage, spell.damage_type or "force")
+                        rolled += roll_dice(damage_expr).total
+                    dmg_result = apply_damage(target, rolled, spell.damage_type or "force")
+                    damage = dmg_result["damage_dealt"]
                 results.append({
                     "target": target.name,
                     "attack_total": raw + bonus,
@@ -171,8 +195,18 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
             heal_amount = max(1, heal_amount)
             if not targets:
                 return {**base_result, "error": "No target for healing spell."}
-            heal_result = apply_healing(targets[0], heal_amount)
-            return {**base_result, "healing": heal_amount, **heal_result}
+            # Roll once, apply to every target (supports Mass Cure Wounds etc.)
+            target_results = []
+            for t in targets:
+                heal_result = apply_healing(t, heal_amount)
+                target_results.append({"target": t.name, **heal_result})
+            return {
+                **base_result,
+                "healing": heal_amount,
+                "targets": target_results,
+                # Legacy single-target keys (first target)
+                **target_results[0],
+            }
 
         case SpellResolution.BUFF:
             return {
@@ -224,4 +258,10 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
             }
 
         case _:
+            # Unknown resolution — refund the slot and restore prior concentration
+            # so the failed cast has no side effects.
+            if spell.level > 0:
+                caster.spell_slots[cast_level] = caster.spell_slots.get(cast_level, 0) + 1
+            if spell.concentration:
+                caster.concentration = dropped_concentration
             return {"success": False, "error": f"Unknown spell resolution type: {spell.resolution}"}

@@ -122,8 +122,12 @@ class GameState:
                     rewards = quest.rewards
                     reward_summary: dict = {}
                     if rewards.xp > 0:
-                        xp_result = self.award_xp(self.player_character_ids, rewards.xp)
+                        # Reward XP is a party total — split it, same as combat XP
+                        xp_each = rewards.xp // max(len(self.player_character_ids), 1)
+                        xp_result = self.award_xp(self.player_character_ids, xp_each)
                         reward_summary["xp"] = xp_result
+                        reward_summary["xp_total"] = rewards.xp
+                        reward_summary["xp_each"] = xp_each
                     if rewards.gold > 0:
                         gold_each = rewards.gold // max(len(self.player_character_ids), 1)
                         for cid in self.player_character_ids:
@@ -154,7 +158,11 @@ class GameState:
         }
 
     def award_xp(self, character_ids: list[str], xp: int) -> dict:
-        """Award XP and check for level-ups."""
+        """Award *xp* to EACH listed character and check for level-ups.
+
+        Callers distributing a party-total amount must split it first
+        (see end_combat and update_quest).
+        """
         results = []
         for cid in character_ids:
             char = self.characters.get(cid)

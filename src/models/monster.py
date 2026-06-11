@@ -39,8 +39,7 @@ class Monster(Character):
     xp_value: int = 0
     actions: list[MonsterAction] = []
     special_traits: list[str] = []
-    damage_resistances: list[str] = []
-    damage_immunities: list[str] = []
+    # damage_resistances / damage_immunities are inherited from Character
     condition_immunities: list[str] = []
     # Boss monster mechanics
     legendary_actions: list[LegendaryAction] = []

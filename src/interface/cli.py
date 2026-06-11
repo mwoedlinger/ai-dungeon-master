@@ -68,6 +68,15 @@ def clear_screen() -> None:
     os.system("cls" if os.name == "nt" else "clear")
 
 
+def erase_lines(n: int) -> None:
+    """Erase the last *n* lines of terminal output using ANSI escape codes."""
+    if n <= 0:
+        return
+    # Move cursor up n lines and clear from cursor to end of screen
+    sys.stdout.write(f"\033[{n}A\033[J")
+    sys.stdout.flush()
+
+
 def display_header() -> None:
     """Display the game header with atmospheric banner, centered in terminal."""
     # Raw lines with Rich markup — visible widths: 52, 55, 57, 57, 57, 55, 52, 55, 46
@@ -347,7 +356,7 @@ def _display_attack(inputs: dict, result: dict) -> None:
         hit_str = "[dice.crit]★ CRITICAL HIT[/dice.crit]"
         console.print(f"  ┌ [dim]Attack Roll[/dim] ──")
         console.print(
-            f"  │ [dice.expr]1d20+{bonus}[/dice.expr] → [{roll_display}]+{bonus}"
+            f"  │ [dice.expr]1d20{bonus:+d}[/dice.expr] → [{roll_display}]{bonus:+d}"
             f" = [dice.total]{total}[/dice.total] vs AC {ac} {hit_str}"
         )
         if damage is not None:
@@ -365,7 +374,7 @@ def _display_attack(inputs: dict, result: dict) -> None:
             dmg_part = f" | [damage]{damage}[/damage] {dmg_type} → {hp_left} HP"
         console.print(
             f"  [dim]⚔[/dim] {attacker} → {target}: "
-            f"[dice.expr]1d20+{bonus}[/dice.expr] = [dice.total]{total}[/dice.total]"
+            f"[dice.expr]1d20{bonus:+d}[/dice.expr] = [dice.total]{total}[/dice.total]"
             f" vs AC {ac} {hit_str}{dmg_part}"
         )
 
@@ -461,6 +470,47 @@ def display_status_bar(game_state: "GameState") -> None:
 # ---------------------------------------------------------------------------
 # Combat initiative tracker — horizontal timeline
 # ---------------------------------------------------------------------------
+
+def measure_combat_state_height(game_state: "GameState") -> int:
+    """Calculate how many terminal lines display_combat_state will occupy.
+
+    Used by SessionManager to erase the status bar before reprinting.
+    """
+    combat = game_state.combat
+    if not combat.active:
+        return 0
+
+    # Build the same timeline string as display_combat_state
+    segments: list[str] = []
+    for i, cid in enumerate(combat.turn_order):
+        try:
+            char = game_state.get_character(cid)
+        except KeyError:
+            continue
+        c = combat.combatants[cid]
+        if char.hp <= 0 or "dead" in char.conditions:
+            continue
+        hp_bar = _hp_bar(char.hp, char.max_hp, width=6)
+        is_active = i == combat.current_turn_index
+        cond_str = f" {','.join(char.conditions)}" if char.conditions else ""
+        if is_active:
+            entry = f"▶ {char.name}({c.initiative:+d}) {hp_bar}{cond_str}"
+        else:
+            entry = f"{char.name}({c.initiative:+d}) {hp_bar}{cond_str}"
+        segments.append(entry)
+
+    # Measure with an offline console to count rendered lines
+    from io import StringIO
+    from rich.panel import Panel
+    from rich.rule import Rule
+
+    buf = StringIO()
+    measure_console = Console(file=buf, width=console.width, theme=DND_THEME)
+    measure_console.print(Rule(f"⚔ Round {combat.round}", style="combat.border", characters="─"))
+    timeline = "  →  ".join(segments)
+    measure_console.print(Panel(timeline, border_style="combat.border", padding=(0, 1)))
+    return buf.getvalue().count("\n")
+
 
 def display_combat_state(game_state: "GameState") -> None:
     """Show initiative order as a horizontal timeline with HP bars."""

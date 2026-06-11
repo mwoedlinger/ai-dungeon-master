@@ -32,7 +32,6 @@ class AnthropicBackend(LLMBackend):
             messages=self._to_wire(messages),
             tools=tools,  # type: ignore[arg-type]
             max_tokens=max_tokens,
-            extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
         )
         return self._from_response(response)
 
@@ -50,7 +49,6 @@ class AnthropicBackend(LLMBackend):
             messages=self._to_wire(messages),
             tools=tools,  # type: ignore[arg-type]
             max_tokens=max_tokens,
-            extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
         ) as stream:
             if on_text_chunk:
                 for text in stream.text_stream:
@@ -70,7 +68,7 @@ class AnthropicBackend(LLMBackend):
             messages=self._to_wire(messages),
             max_tokens=max_tokens,
         )
-        return response.content[0].text
+        return self._first_text(response)
 
     def compress(
         self,
@@ -84,11 +82,19 @@ class AnthropicBackend(LLMBackend):
             messages=self._to_wire(messages),
             max_tokens=max_tokens,
         )
-        return response.content[0].text
+        return self._first_text(response)
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _first_text(response) -> str:
+        """First text block of a response, or empty string (never IndexError)."""
+        for block in response.content:
+            if getattr(block, "type", None) == "text":
+                return block.text
+        return ""
 
     def _to_wire(self, messages: list[dict]) -> list[dict]:
         """Strip fields Anthropic doesn't accept (name on tool_result blocks)."""

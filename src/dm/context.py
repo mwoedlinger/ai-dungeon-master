@@ -297,12 +297,23 @@ class ContextManager:
     def add_message(self, message: dict) -> None:
         self.full_history.append(message)
 
+    @staticmethod
+    def _is_safe_history_start(msg: dict) -> bool:
+        """History sent to the API must start with a plain user text message.
+
+        Starting on an assistant message, or on a user message carrying
+        tool_result blocks whose tool_use was cut away, is rejected by the
+        API (orphaned tool blocks / role-order errors).
+        """
+        return msg.get("role") == "user" and isinstance(msg.get("content"), str)
+
     def get_messages_for_api(self, backend: "LLMBackend | None" = None) -> list[dict]:
         """Return history trimmed to fit token budget.
 
         Performs a hard safety check: estimates total payload (system prompt +
         tools + messages) and compresses/trims to fit within the backend's
-        context window, reserving space for the response.
+        context window, reserving space for the response. Trimming only cuts
+        at safe boundaries so tool_use/tool_result pairs are never split.
         """
         if backend:
             budget, _ = self._thresholds(backend.context_window)
@@ -320,14 +331,23 @@ class ContextManager:
         if backend and self._estimate_tokens() > effective_budget:
             self.compress_if_needed(backend, force=True)
 
-        # If still over budget after compression, trim oldest messages
+        # If still over budget after compression, trim oldest messages —
+        # but only cut at safe start boundaries.
         if self._estimate_tokens() <= effective_budget:
             return self.full_history
 
-        trimmed = list(self.full_history)
-        while len(trimmed) > 2 and self._estimate_tokens(trimmed) > effective_budget:
-            trimmed.pop(0)
-        return trimmed
+        boundaries = [
+            i for i, msg in enumerate(self.full_history)
+            if self._is_safe_history_start(msg)
+        ]
+        for b in boundaries:
+            candidate = self.full_history[b:]
+            if self._estimate_tokens(candidate) <= effective_budget:
+                return candidate
+        # Nothing fits — send from the last safe boundary (smallest valid slice)
+        if boundaries:
+            return self.full_history[boundaries[-1]:]
+        return self.full_history
 
     def compact_tool_pairs(self, keep_recent: int = 2) -> None:
         """Replace resolved tool_use + tool_result pairs with compact summaries.
@@ -410,8 +430,25 @@ class ContextManager:
             current_tokens, trigger, len(self.full_history), force,
         )
 
-        # Identify oldest half of messages (keep recent half for context)
+        # Identify oldest half of messages (keep recent half for context).
+        # The cut must land on a safe boundary (plain user text message) so a
+        # tool_use/tool_result pair is never split across the prune line.
         n_to_compress = max(self._MIN_MESSAGES_FOR_COMPRESS, len(self.full_history) // 2)
+        n = len(self.full_history)
+        while n_to_compress < n and not self._is_safe_history_start(self.full_history[n_to_compress]):
+            n_to_compress += 1
+        if n_to_compress >= n:
+            # No safe cut at/after the midpoint — fall back to the latest safe
+            # boundary before it; if none exists, skip compression entirely.
+            fallback = max(
+                (i for i in range(1, min(n, n_to_compress))
+                 if self._is_safe_history_start(self.full_history[i])),
+                default=0,
+            )
+            if fallback == 0:
+                logger.warning("No safe compression boundary found — skipping compression")
+                return
+            n_to_compress = fallback
         old_messages = self.full_history[:n_to_compress]
         # DO NOT prune yet — only after successful compression
 
@@ -646,11 +683,23 @@ class ContextManager:
                 char = self.game_state.get_character(cid)
             except KeyError:
                 continue
-            # Omit dead combatants — their turns are auto-skipped
-            if char.hp <= 0 or "dead" in char.conditions:
+            # Omit dead combatants (and downed monsters) — their turns are
+            # auto-skipped. Unconscious PCs stay visible: they make death saves.
+            if "dead" in char.conditions or (not char.is_player and char.hp <= 0):
                 continue
             marker = "→ " if i == combat.current_turn_index else "  "
             c = combat.combatants[cid]
+            if char.hp <= 0:
+                if "stable" in char.conditions:
+                    status = "UNCONSCIOUS (stable)"
+                else:
+                    ds = char.death_saves
+                    status = f"DYING (death saves: {ds.successes}✓ {ds.failures}✗)"
+                lines.append(
+                    f"{marker}{char.name} [{cid}] (Init {c.initiative}) — "
+                    f"0/{char.max_hp} HP [{status}]"
+                )
+                continue
             actions = []
             if c.has_action:
                 actions.append("action")

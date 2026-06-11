@@ -219,11 +219,11 @@ class TestLoggingConfiguration:
         """Test that _setup_logging configures correct level and creates log file."""
         import logging
         from main import _setup_logging
-        log_path = _setup_logging(debug=True, log_dir=str(tmp_path))
+        result = _setup_logging(debug=True, log_dir=str(tmp_path))
         root = logging.getLogger()
         assert root.level == logging.DEBUG
-        assert log_path is not None
-        assert log_path.exists()
+        assert result["debug_log"] is not None
+        assert result["debug_log"].exists()
         # Clean up file handler
         for h in root.handlers[:]:
             if isinstance(h, logging.FileHandler):
@@ -247,13 +247,15 @@ class TestLoggingConfiguration:
         result = _setup_logging()
         root = logging.getLogger()
         assert root.level == logging.WARNING
-        assert result is None
+        assert result["debug_log"] is None
+        assert result["terminal_log"] is None
 
     def test_debug_log_file_receives_messages(self, tmp_path):
         """Test that debug log file captures log messages."""
         import logging
         from main import _setup_logging
-        log_path = _setup_logging(debug=True, log_dir=str(tmp_path))
+        result = _setup_logging(debug=True, log_dir=str(tmp_path))
+        log_path = result["debug_log"]
         test_logger = logging.getLogger("test.debug_file")
         test_logger.debug("test debug message for file")
         # Flush handlers

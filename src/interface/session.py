@@ -5,7 +5,6 @@ from enum import Enum
 
 from src.dm.dungeon_master import DungeonMaster
 from src.engine.game_state import GameState
-from rich.panel import Panel
 
 from src.interface.cli import (
     NarrativeStreamer,
@@ -18,6 +17,8 @@ from src.interface.cli import (
     display_narrative,
     display_status_bar,
     display_turn_separator,
+    erase_lines,
+    measure_combat_state_height,
 )
 from src.interface.commands import CommandContext, try_handle_command
 from src.log.event_log import EventLog
@@ -45,6 +46,7 @@ class SessionManager:
         self.mode = TurnMode.EXPLORATION
         self._last_event_idx = 0
         self._last_location_id: str | None = None
+        self._combat_status_lines = 0  # lines occupied by last combat status bar
 
     def run(self) -> None:
         """Main game loop."""
@@ -101,14 +103,22 @@ class SessionManager:
             self._process_and_render("[Player requests to save and quit the session.]")
             raise EOFError
 
-        # Clear screen and redraw for new turn
-        clear_screen()
-        display_header()
         self._process_and_render(player_input)
 
         # Check if combat started
         if self.game_state.combat.active:
             self.mode = TurnMode.COMBAT
+
+    def _erase_combat_status(self) -> None:
+        """Erase the previously printed combat status bar using ANSI cursor movement."""
+        if self._combat_status_lines > 0:
+            erase_lines(self._combat_status_lines)
+            self._combat_status_lines = 0
+
+    def _show_combat_status(self) -> None:
+        """Print the combat status bar and track its height for later erasure."""
+        self._combat_status_lines = measure_combat_state_height(self.game_state)
+        display_combat_state(self.game_state)
 
     def _combat_input_loop(self) -> None:
         combat = self.game_state.combat
@@ -117,7 +127,7 @@ class SessionManager:
             self.mode = TurnMode.EXPLORATION
             return
 
-        # Auto-skip dead combatants without involving the LLM
+        # Auto-skip dead/missing combatants without involving the LLM
         current_id = combat.current_combatant_id
         try:
             current_char = self.game_state.get_character(current_id)
@@ -125,13 +135,23 @@ class SessionManager:
             from src.engine.combat import end_turn
             end_turn(self.game_state)
             return
-        if current_char.hp <= 0 or "dead" in current_char.conditions:
+        if "dead" in current_char.conditions or (
+            not current_char.is_player and current_char.hp <= 0
+        ):
             from src.engine.combat import end_turn
             end_turn(self.game_state)
             return
 
-        display_combat_state(self.game_state)
+        # Unconscious PC: their turn is a death save (auto-rolled), unless stable
+        if current_char.is_player and current_char.hp <= 0:
+            self._handle_dying_player_turn(current_id, current_char)
+            if not self.game_state.combat.active:
+                self.mode = TurnMode.EXPLORATION
+            return
+
+        self._show_combat_status()
         console.print("")
+        self._combat_status_lines += 1  # account for the blank line
 
         if current_char.is_player:
             prompt = f"[{current_char.name}'s turn] > "
@@ -140,6 +160,7 @@ class SessionManager:
             except (KeyboardInterrupt, EOFError):
                 raise
             if not player_input:
+                self._erase_combat_status()
                 return
             # Slash commands work in combat too
             if player_input.startswith("/"):
@@ -147,20 +168,19 @@ class SessionManager:
                 try_handle_command(player_input, ctx)
                 if ctx.should_exit:
                     raise EOFError
+                self._erase_combat_status()
                 return
             if player_input.lower() in ("quit", "exit", "q"):
                 raise EOFError
 
-            clear_screen()
-            display_header()
-            display_combat_state(self.game_state)
+            # Erase status bar + input line, then show turn content
+            self._combat_status_lines += 1  # the input line
+            self._erase_combat_status()
             display_turn_separator(current_char.name, is_player=True)
             self._process_and_render(f"[{current_char.name}]: {player_input}", combat=True)
         else:
-            # Monster turn — DM acts automatically
-            clear_screen()
-            display_header()
-            display_combat_state(self.game_state)
+            # Monster turn — DM acts automatically; erase status bar first
+            self._erase_combat_status()
             display_turn_separator(current_char.name, is_player=False)
             self._process_and_render(
                 f"[DM: It is {current_char.name}'s turn. "
@@ -168,9 +188,41 @@ class SessionManager:
                 f"then resolve their actions, then call end_turn().]",
                 combat=True,
             )
+            # If the LLM narrated but never called end_turn, the same monster
+            # would be prompted again forever — force the turn to advance.
+            combat = self.game_state.combat
+            if combat.active and combat.current_combatant_id == current_id:
+                console.print(f"[dim]{current_char.name}'s turn ends.[/dim]")
+                self.dm.tool_dispatcher.dispatch("end_turn", {})
 
         if not self.game_state.combat.active:
             self.mode = TurnMode.EXPLORATION
+
+    def _handle_dying_player_turn(self, current_id: str, current_char) -> None:
+        """Roll a death save for an unconscious PC (or skip if stable), then end the turn."""
+        dispatch = self.dm.tool_dispatcher.dispatch
+        if "stable" in current_char.conditions:
+            console.print(f"[dim]{current_char.name} is stable but unconscious — turn skipped.[/dim]")
+        else:
+            result = dispatch("death_save", {"character_id": current_id})
+            if result.get("success"):
+                roll = result.get("roll", "?")
+                outcome = result.get("outcome", "")
+                if result.get("dead"):
+                    console.print(f"[bold red]{current_char.name} rolls a death save: {roll} — "
+                                  f"third failure. {current_char.name} has died.[/bold red]")
+                elif outcome == "miraculous_recovery":
+                    console.print(f"[bold green]{current_char.name} rolls a natural 20 — "
+                                  f"they regain 1 HP and awaken![/bold green]")
+                elif result.get("stabilized"):
+                    console.print(f"[green]{current_char.name} rolls a death save: {roll} — "
+                                  f"third success. They are stable.[/green]")
+                else:
+                    succ = current_char.death_saves.successes
+                    fail = current_char.death_saves.failures
+                    console.print(f"[yellow]{current_char.name} rolls a death save: {roll} "
+                                  f"({outcome}) — {succ}✓ {fail}✗[/yellow]")
+        dispatch("end_turn", {})
 
     def _process_and_render(self, player_input: str, *, combat: bool = False) -> None:
         """Process input with streaming output, then show dice rolls and narrative."""

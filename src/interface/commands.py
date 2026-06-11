@@ -69,7 +69,6 @@ def _cmd_status(args: str, ctx: CommandContext) -> None:
         cond = f"  [{', '.join(char.conditions)}]" if char.conditions else ""
         slots = ""
         if char.spell_slots:
-            used = {k: char.max_spell_slots.get(k, 0) - v for k, v in char.spell_slots.items()}
             slot_parts = [f"L{k}: {v}/{char.max_spell_slots.get(k, 0)}" for k, v in sorted(char.spell_slots.items())]
             slots = " | Slots: " + ", ".join(slot_parts)
         console.print(
@@ -219,6 +218,13 @@ def _cmd_recap(args: str, ctx: CommandContext) -> None:
     console.print("[dim]Generating session recap...[/dim]")
     recap = ctx.dm.generate_session_recap()
     console.print(Panel(recap, title="[bold]Session Recap[/bold]", border_style="cyan"))
+
+
+def _cmd_summary(args: str, ctx: CommandContext) -> None:
+    """Generate a two-part story summary."""
+    console.print("[dim]Generating story summary...[/dim]")
+    summary = ctx.dm.generate_story_summary()
+    console.print(Panel(summary, title="[bold]Story Summary[/bold]", border_style="cyan", padding=(1, 2)))
 
 
 _COMPENDIUM_CATEGORIES = [
@@ -510,6 +516,7 @@ COMMANDS: dict[str, tuple] = {
     "location":  (_cmd_location,  "Describe current location (cached)"),
     "journal":   (_cmd_journal,   "Show world journal and NPC attitudes"),
     "recap":     (_cmd_recap,     "Narrative recap of the session"),
+    "summary":   (_cmd_summary,   "Story summary (overall arc + recent events)"),
     "compendium": (_cmd_compendium, "Search the SRD (monsters, spells, items, etc.)"),
     "c":         (_cmd_compendium, "Search SRD (alias for /compendium)"),
 }
