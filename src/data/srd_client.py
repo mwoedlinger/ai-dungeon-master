@@ -195,7 +195,9 @@ def _api_monster_to_internal(data: dict) -> dict:
                 "properties": props,
                 "range_normal": None,
                 "range_long": None,
-                "attack_bonus_override": None,
+                # Statblock attack bonus; damage dice already include the
+                # modifier, so the engine adds no ability mod on top.
+                "attack_bonus_override": attack_bonus,
             }
 
     # Special abilities
@@ -343,6 +345,9 @@ def _infer_resolution(data: dict) -> str:
 # Manual overrides for spells that need specific resolution not inferable from API data.
 # Keyed by spell name exactly as it appears in the SRD.
 _SPELL_OVERRIDES: dict[str, dict] = {
+    # Level 1
+    "Shield": {"resolution": "buff", "condition_effect": "shielded",
+               "description": "+5 AC until the start of your next turn (reaction)."},
     # Level 4
     "Banishment": {"resolution": "save_effect", "save_ability": "CHA", "condition_effect": "banished"},
     "Greater Invisibility": {"resolution": "buff", "description": "Target is invisible. Attacks against it have disadvantage; its attacks have advantage."},

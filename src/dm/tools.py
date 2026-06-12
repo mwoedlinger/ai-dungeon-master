@@ -211,6 +211,19 @@ _COMBAT_TOOLS = [
         },
     },
     {
+        "name": "opportunity_attack",
+        "description": "Make an opportunity attack as a REACTION when an enemy leaves the attacker's melee reach. Works outside the attacker's own turn and consumes their reaction. Melee weapons only.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "attacker_id": {"type": "string", "description": "Character making the opportunity attack"},
+                "target_id": {"type": "string", "description": "Creature provoking the attack"},
+                "weapon_name": {"type": "string"},
+            },
+            "required": ["attacker_id", "target_id", "weapon_name"],
+        },
+    },
+    {
         "name": "use_legendary_action",
         "description": "Use a boss monster's legendary action between other combatants' turns. Legendary actions refresh at the start of the monster's turn.",
         "input_schema": {
@@ -830,6 +843,37 @@ ALL_TOOL_SCHEMAS: list[dict] = (
     + _REPUTATION_TOOLS + _TRAVEL_TOOLS
 )
 
+# Core gameplay tools for small-context backends (e.g. local Ollama, 8k):
+# the full 60+ schemas alone can eat most of a small window. Downtime,
+# economy, reputation, and lore-browsing tools are dropped; everything needed
+# to play (checks, combat, rests, items, travel, journal) stays.
+_CORE_TOOL_NAMES = frozenset({
+    "roll_dice", "ability_check", "saving_throw",
+    "start_combat", "attack", "cast_spell", "apply_damage", "apply_healing",
+    "apply_condition", "remove_condition", "get_monster_actions",
+    "death_save", "end_turn", "end_combat",
+    "get_character_sheet", "take_short_rest", "take_long_rest",
+    "add_item", "remove_item", "award_xp", "update_quest",
+    "set_location", "travel_to_location", "advance_time", "save_game",
+    "record_event", "recall_events", "lookup_srd",
+})
+
+CORE_TOOL_SCHEMAS: list[dict] = [
+    s for s in ALL_TOOL_SCHEMAS if s["name"] in _CORE_TOOL_NAMES
+]
+
+# Below this context window size, only the core tool set is offered.
+_SMALL_CONTEXT_THRESHOLD = 32_000
+
+
+def get_tool_schemas(context_window: int) -> list[dict]:
+    """Tool schemas sized to the backend's context window."""
+    if context_window < _SMALL_CONTEXT_THRESHOLD:
+        return CORE_TOOL_SCHEMAS
+    return ALL_TOOL_SCHEMAS
+
+_ABILITIES = frozenset({"STR", "DEX", "CON", "INT", "WIS", "CHA"})
+
 # Which tools consume action economy resources
 ACTION_COSTS: dict[str, str] = {
     "attack": "action",
@@ -840,10 +884,6 @@ ACTION_COSTS: dict[str, str] = {
     "use_lay_on_hands": "action",
 }
 
-# Tools that require combat to be active
-COMBAT_ONLY_TOOLS = frozenset({
-    "attack", "end_turn", "end_combat", "death_save",
-})
 
 
 # ---------------------------------------------------------------------------
@@ -865,6 +905,11 @@ class ToolDispatcher:
         self.backend = backend
         self.campaign = campaign
         self._npc_sessions: dict[str, object] = {}  # npc_id → NPCDialogueSession
+        # Turn scope: which combatant the CURRENT LLM render is allowed to
+        # resolve. None = unrestricted (exploration, API server, tests).
+        # "" (_SCOPE_LOCKED) = combat just started or turn already passed —
+        # no further combat actions this render. Set by the session manager.
+        self._turn_scope: str | None = None
 
         # Wire up journal manager if backend is available
         self._journal_manager = None
@@ -872,11 +917,47 @@ class ToolDispatcher:
             from src.engine.journal_manager import JournalManager
             self._journal_manager = JournalManager(game_state.journal, backend)
 
+    _SCOPE_LOCKED = ""
+
+    def set_turn_scope(self, combatant_id: str | None) -> None:
+        """Restrict combat actions to one combatant for the current render.
+
+        The session manager calls this before each LLM render: the current
+        combatant's id during combat turns, "" for exploration renders (so a
+        freshly started combat is locked until the first turn is prompted),
+        or None to lift all restrictions (API server / scripts).
+        """
+        self._turn_scope = combatant_id
+
+    def _char_name(self, cid: str) -> str:
+        try:
+            return self.game_state.get_character(cid).name
+        except KeyError:
+            return cid
+
     def dispatch(self, tool_name: str, inputs: dict) -> dict:
         """Route tool call to engine with validation."""
         try:
+            combat = self.game_state.combat
+            # end_turn may only pass the turn that belongs to this render —
+            # otherwise the LLM can fast-forward whole rounds inside one
+            # response, skipping monster turns and desyncing the session loop.
+            if (
+                tool_name == "end_turn"
+                and combat.active
+                and self._turn_scope is not None
+                and combat.current_combatant_id != self._turn_scope
+            ):
+                logger.warning("end_turn rejected: turn already passed (scope=%r)", self._turn_scope)
+                return {
+                    "success": False,
+                    "error": "This turn has already been passed. STOP — do not act for or "
+                             "end other combatants' turns; the engine prompts each turn "
+                             "separately. Finish your narration now.",
+                }
+
             # Validate action economy in combat
-            if self.game_state.combat.active and tool_name in ACTION_COSTS:
+            if combat.active and tool_name in ACTION_COSTS:
                 validation = self._validate_combat_action(tool_name, inputs)
                 if not validation["valid"]:
                     logger.warning("Action economy rejected: %s — %s", tool_name, validation["reason"])
@@ -921,8 +1002,43 @@ class ToolDispatcher:
         if not combatant:
             return {"valid": True}  # non-actor tools are fine
 
+        # Reaction spells (Shield, …) may be cast off-turn — they bypass the
+        # turn checks below and consume the reaction instead of an action.
+        if tool_name == "cast_spell":
+            spell = get_spell(inputs.get("spell_name", ""))
+            if spell is not None and spell.casting_time == "reaction":
+                if not combatant.has_reaction:
+                    return {
+                        "valid": False,
+                        "reason": f"{self._char_name(actor_id)} has already used "
+                                  "their reaction this round.",
+                    }
+                return {"valid": True}
+
+        # Render scope: this response may only resolve one combatant's turn.
+        if self._turn_scope is not None and actor_id != self._turn_scope:
+            if self._turn_scope == self._SCOPE_LOCKED:
+                reason = (
+                    f"{self._char_name(actor_id)} cannot act right now — combat turns are "
+                    "prompted one at a time by the engine. STOP and finish your narration; "
+                    "the next combatant's turn comes in the next prompt."
+                )
+            else:
+                reason = (
+                    f"Only {self._char_name(self._turn_scope)}'s turn is being resolved in this "
+                    f"response — {self._char_name(actor_id)} acts when the engine prompts their "
+                    "turn. The only off-turn options are opportunity_attack (creature leaves "
+                    "melee reach) and reaction spells like Shield via cast_spell."
+                )
+            return {"valid": False, "reason": reason}
+
         if combatant.character_id != combat.current_combatant_id:
-            return {"valid": False, "reason": f"It's not {combatant.character_id}'s turn yet."}
+            current = self._char_name(combat.current_combatant_id)
+            return {
+                "valid": False,
+                "reason": f"It's not {self._char_name(actor_id)}'s turn yet — "
+                          f"{current} is up. Each combatant acts only on their own turn.",
+            }
 
         action_cost = ACTION_COSTS.get(tool_name, "free")
         if action_cost == "action" and not combatant.has_action:
@@ -939,14 +1055,21 @@ class ToolDispatcher:
             # --- Dice / Checks ---
             case "roll_dice":
                 from src.engine.dice import roll_dice
-                result = roll_dice(inputs["dice_expr"])
+                try:
+                    result = roll_dice(inputs["dice_expr"])
+                except ValueError as e:
+                    return {"success": False, "error": str(e)}
                 return {"success": True, "expression": result.expression, "total": result.total,
                         "rolls": result.individual_rolls, "modifier": result.modifier, "reason": inputs.get("reason", "")}
 
             case "ability_check":
                 char = gs.get_character(inputs["character_id"])
+                ability = inputs["ability"].upper()
+                if ability not in _ABILITIES:
+                    return {"success": False,
+                            "error": f"Unknown ability {inputs['ability']!r}. Valid: STR, DEX, CON, INT, WIS, CHA."}
                 result = ability_check(
-                    char, inputs["ability"], inputs["dc"],
+                    char, ability, inputs["dc"],
                     skill=inputs.get("skill"),
                     advantage=inputs.get("advantage", False),
                     disadvantage=inputs.get("disadvantage", False),
@@ -955,8 +1078,12 @@ class ToolDispatcher:
 
             case "saving_throw":
                 char = gs.get_character(inputs["character_id"])
+                ability = inputs["ability"].upper()
+                if ability not in _ABILITIES:
+                    return {"success": False,
+                            "error": f"Unknown ability {inputs['ability']!r}. Valid: STR, DEX, CON, INT, WIS, CHA."}
                 result = saving_throw(
-                    char, inputs["ability"], inputs["dc"],
+                    char, ability, inputs["dc"],
                     advantage=inputs.get("advantage", False),
                     disadvantage=inputs.get("disadvantage", False),
                 )
@@ -1009,7 +1136,17 @@ class ToolDispatcher:
                     if pid not in seen:
                         seen.add(pid)
                         unique_ids.append(pid)
-                return combat_engine.start_combat(gs, unique_ids)
+                result = combat_engine.start_combat(gs, unique_ids)
+                if result.get("success") and self._turn_scope is not None:
+                    # Lock this render: turns are prompted one at a time by
+                    # the session loop, starting on the next prompt.
+                    self._turn_scope = self._SCOPE_LOCKED
+                    result["note"] = (
+                        "Combat has begun. STOP after describing the scene — do not act "
+                        "for any combatant or call end_turn now. Each turn (including the "
+                        "first) will be prompted separately."
+                    )
+                return result
 
             case "attack":
                 attacker = gs.get_character(inputs["attacker_id"])
@@ -1020,7 +1157,34 @@ class ToolDispatcher:
                     None,
                 )
                 if weapon is None:
-                    return {"success": False, "error": f"{attacker.name} does not have a weapon named {inputs['weapon_name']!r}."}
+                    # Monsters can attack with any damage-dealing statblock
+                    # action (Bite, Claw, …), using its attack bonus directly.
+                    from src.models.character import Weapon
+                    from src.models.monster import Monster
+                    is_monster = isinstance(attacker, Monster)
+                    action = next(
+                        (a for a in attacker.actions
+                         if a.name.lower() == weapon_name and a.damage_dice),
+                        None,
+                    ) if is_monster else None
+                    if action is not None:
+                        weapon = Weapon(
+                            name=action.name,
+                            damage_dice=action.damage_dice,
+                            damage_type=action.damage_type or "slashing",
+                            properties=(["ranged"] if "ranged"
+                                        in action.description.lower() else []),
+                            attack_bonus_override=action.attack_bonus,
+                        )
+                    else:
+                        options = [w.name for w in attacker.weapons]
+                        if is_monster:
+                            options += [a.name for a in attacker.actions if a.damage_dice]
+                        return {
+                            "success": False,
+                            "error": f"{attacker.name} does not have an attack named "
+                                     f"{inputs['weapon_name']!r}. Available: {options or 'none'}",
+                        }
                 from src.engine.rules import attack_roll as _attack_roll
                 has_advantage = inputs.get("advantage", False)
                 atk = _attack_roll(
@@ -1067,6 +1231,51 @@ class ToolDispatcher:
                     gs.combat.consume_action(inputs["attacker_id"])
                 return result
 
+            case "opportunity_attack":
+                if not gs.combat.active:
+                    return {"success": False, "error": "Opportunity attacks only happen in combat."}
+                attacker = gs.get_character(inputs["attacker_id"])
+                target = gs.get_character(inputs["target_id"])
+                combatant = gs.combat.combatants.get(inputs["attacker_id"])
+                if combatant is None:
+                    return {"success": False, "error": f"{attacker.name} is not in this combat."}
+                if inputs["attacker_id"] == gs.combat.current_combatant_id:
+                    return {"success": False, "error": "It is currently this character's own turn — use the attack tool instead."}
+                if not combatant.has_reaction:
+                    return {"success": False, "error": f"{attacker.name} has already used their reaction this round."}
+                weapon_name = inputs["weapon_name"].lower()
+                weapon = next(
+                    (w for w in attacker.weapons if w.name.lower() == weapon_name),
+                    None,
+                )
+                if weapon is None:
+                    return {"success": False, "error": f"{attacker.name} does not have a weapon named {inputs['weapon_name']!r}."}
+                if "ranged" in [p.lower() for p in weapon.properties]:
+                    return {"success": False, "error": "Opportunity attacks require a melee weapon."}
+                from src.engine.rules import attack_roll as _oa_attack_roll
+                atk = _oa_attack_roll(attacker, target, weapon)
+                combatant.has_reaction = False
+                result = {
+                    "success": True,
+                    "reaction": "opportunity_attack",
+                    "attacker": attacker.name,
+                    "target": target.name,
+                    "roll": atk.roll.individual_rolls,
+                    "attack_bonus": atk.attack_bonus,
+                    "total_attack": atk.total_attack,
+                    "target_ac": atk.target_ac,
+                    "hits": atk.hits,
+                    "is_crit": atk.is_crit,
+                    "is_nat1": atk.is_nat1,
+                }
+                if atk.hits and atk.damage is not None:
+                    dmg_result = apply_damage(target, atk.damage, atk.damage_type or "slashing")
+                    result["damage"] = atk.damage
+                    result["damage_type"] = atk.damage_type
+                    result["hp_remaining"] = target.hp
+                    result.update({k: v for k, v in dmg_result.items() if k not in result})
+                return result
+
             case "cast_spell":
                 caster = gs.get_character(inputs["caster_id"])
                 spell = get_spell(inputs["spell_name"])
@@ -1085,12 +1294,16 @@ class ToolDispatcher:
                 targets = [gs.get_character(tid) for tid in inputs.get("target_ids", [])]
                 cast_level = inputs.get("spell_level", spell.level)
                 result = resolve_spell(gs, spell, caster, targets, cast_level)
-                # Consume action/bonus based on spell's casting_time
+                # Consume action/bonus/reaction based on spell's casting_time
                 if gs.combat.active and result.get("success"):
                     if spell.casting_time == "action":
                         gs.combat.consume_action(inputs["caster_id"])
                     elif spell.casting_time == "bonus_action":
                         gs.combat.consume_bonus_action(inputs["caster_id"])
+                    elif spell.casting_time == "reaction":
+                        combatant = gs.combat.combatants.get(inputs["caster_id"])
+                        if combatant is not None:
+                            combatant.has_reaction = False
                 return result
 
             case "apply_damage":
@@ -1129,6 +1342,8 @@ class ToolDispatcher:
                 monster = gs.get_character(inputs["monster_id"])
                 if not isinstance(monster, _Monster):
                     return {"success": False, "error": f"{inputs['monster_id']} is not a monster."}
+                if gs.combat.active and gs.combat.current_combatant_id == inputs["monster_id"]:
+                    return {"success": False, "error": f"Legendary actions are used at the end of OTHER creatures' turns, not on {monster.name}'s own turn."}
                 if monster.legendary_actions_remaining <= 0:
                     return {"success": False, "error": f"{monster.name} has no legendary actions remaining this round."}
                 action_name = inputs["action_name"].lower()

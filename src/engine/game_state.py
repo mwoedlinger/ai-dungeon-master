@@ -18,7 +18,7 @@ from src.models.world import WorldState
 logger = logging.getLogger(__name__)
 
 # Bump when the save schema changes; add migration functions below.
-SAVE_VERSION = 1
+SAVE_VERSION = 2
 
 
 @dataclass
@@ -30,6 +30,10 @@ class GameState:
     world: WorldState
     combat: CombatState = field(default_factory=CombatState)
     journal: WorldJournal = field(default_factory=WorldJournal)
+    # Raw LLM conversation history (normalized message dicts). Owned by
+    # ContextManager at runtime; persisted so a reloaded session keeps the
+    # un-summarized recent dialogue instead of "forgetting" the last scene.
+    conversation_history: list[dict] = field(default_factory=list)
     # Campaign reference injected after construction
     campaign: object = field(default=None, repr=False)
 
@@ -202,6 +206,9 @@ class GameState:
             "world": self.world.model_dump(),
             "combat": self.combat.model_dump(),
             "journal": self.journal.model_dump(),
+            # Cap persisted history: compression keeps it bounded in normal play,
+            # but never let a save balloon past the most recent 200 messages.
+            "conversation_history": self.conversation_history[-200:],
         }
 
         # Atomic write: temp file → rename
@@ -277,6 +284,7 @@ class GameState:
             world=world,
             combat=combat,
             journal=journal,
+            conversation_history=data.get("conversation_history", []),
             campaign=campaign,
         )
 
@@ -290,6 +298,10 @@ def _migrate_save(data: dict) -> dict:
         data.setdefault("version", 1)
         # Old saves only had player characters; no migration needed for that
         # since monsters simply won't be present.
+
+    if version < 2:
+        # v1 → v2: persist raw conversation history alongside the journal
+        data.setdefault("conversation_history", [])
 
     data["version"] = SAVE_VERSION
     return data

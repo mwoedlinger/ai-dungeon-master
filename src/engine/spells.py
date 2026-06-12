@@ -5,11 +5,10 @@ import re
 
 from src.engine.dice import roll_dice
 from src.engine.rules import (
-    _condition_modifiers,
     apply_condition,
     apply_damage,
     apply_healing,
-    effective_ac,
+    resolve_attack,
     saving_throw,
 )
 from src.models.character import Character
@@ -147,34 +146,28 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
             results = []
             sc_ability = caster.spellcasting_ability or "INT"
             bonus = caster.ability_scores.modifier(sc_ability) + caster.proficiency_bonus
-            atk_flags = _condition_modifiers(caster)
+            # Use cantrip scaling for level 0 spells
+            if spell.level == 0 and spell.cantrip_scaling:
+                damage_expr = _get_cantrip_dice(spell, caster)
+            else:
+                damage_expr = _apply_upcast(spell.damage_dice, spell, cast_level)
+            damage_type = spell.damage_type or "force"
             for target in targets:
-                # Spell attacks respect the same condition advantage rules as weapon attacks
-                tgt_flags = _condition_modifiers(target)
-                advantage = atk_flags["attack_advantage"] or tgt_flags["attacked_advantage"]
-                disadvantage = atk_flags["attack_disadvantage"] or tgt_flags["attacked_disadvantage"]
-                atk = roll_dice("1d20", advantage=advantage, disadvantage=disadvantage)
-                raw = atk.kept_roll if atk.kept_roll is not None else atk.individual_rolls[0]
-                is_crit = raw == 20
-                target_ac = effective_ac(target)
-                hits = is_crit or (raw != 1 and raw + bonus >= target_ac)
+                atk = resolve_attack(
+                    caster, target,
+                    attack_bonus=bonus,
+                    damage_dice=damage_expr,
+                    damage_type=damage_type,
+                )
                 damage = None
-                if hits:
-                    # Use cantrip scaling for level 0 spells
-                    if spell.level == 0 and spell.cantrip_scaling:
-                        damage_expr = _get_cantrip_dice(spell, caster)
-                    else:
-                        damage_expr = _apply_upcast(spell.damage_dice, spell, cast_level)
-                    rolled = roll_dice(damage_expr).total
-                    if is_crit:
-                        rolled += roll_dice(damage_expr).total
-                    dmg_result = apply_damage(target, rolled, spell.damage_type or "force")
+                if atk.hits and atk.damage is not None:
+                    dmg_result = apply_damage(target, atk.damage, damage_type)
                     damage = dmg_result["damage_dealt"]
                 results.append({
                     "target": target.name,
-                    "attack_total": raw + bonus,
-                    "hits": hits,
-                    "is_crit": is_crit,
+                    "attack_total": atk.total_attack,
+                    "hits": atk.hits,
+                    "is_crit": atk.is_crit,
                     "damage": damage,
                     "hp_remaining": target.hp,
                 })
@@ -209,11 +202,24 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
             }
 
         case SpellResolution.BUFF:
+            # Buffs with a mechanical condition (e.g. Shield → "shielded")
+            # apply it to the targets, or the caster if none given.
+            affected = []
+            if spell.condition_effect:
+                combat = game_state.combat if game_state.combat.active else None
+                for t in (targets or [caster]):
+                    apply_condition(
+                        t, spell.condition_effect, spell.duration_rounds,
+                        combat_state=combat,
+                    )
+                    affected.append(t.name)
             return {
                 **base_result,
                 "effect": spell.buff_effect,
                 "duration_rounds": spell.duration_rounds,
                 "concentration": spell.concentration,
+                **({"condition_applied": spell.condition_effect, "targets": affected}
+                   if affected else {}),
             }
 
         case SpellResolution.SAVE_EFFECT:

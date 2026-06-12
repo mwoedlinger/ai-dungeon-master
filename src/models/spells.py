@@ -34,4 +34,4 @@ class SpellData(BaseModel):
     cantrip_scaling: dict[int, str] | None = None  # {1: "1d10", 5: "2d10", ...}
     description: str
     aoe: bool = False
-    condition_effect: str | None = None  # condition applied by SAVE_EFFECT spells
+    condition_effect: str | None = None  # condition applied by SAVE_EFFECT/BUFF spells

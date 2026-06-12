@@ -11,7 +11,7 @@ from src.campaign.campaign_db import CampaignData
 from src.dm.backends import create_backend
 from src.dm.backends.base import TokenUsage
 from src.dm.context import ContextManager
-from src.dm.tools import ALL_TOOL_SCHEMAS, ToolDispatcher
+from src.dm.tools import ToolDispatcher, get_tool_schemas
 from src.engine.game_state import GameState
 from src.log.event_log import EventLog
 
@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 # Hard cap on tool-call iterations to prevent infinite loops
 MAX_TOOL_ITERATIONS = 15
+
+# Per-response output budget. Narration runs long during set pieces; 2048
+# truncated mid-sentence. Streaming is used throughout, so the larger cap
+# costs nothing when responses are short.
+MAX_RESPONSE_TOKENS = 4096
 
 # Retry settings for transient API errors
 _MAX_RETRIES = 3
@@ -189,8 +194,8 @@ class DungeonMaster:
             api_kwargs = dict(
                 system=self.context_manager.build_system_prompt_blocks(),
                 messages=self.context_manager.get_messages_for_api(self.backend),
-                tools=ALL_TOOL_SCHEMAS,
-                max_tokens=2048,
+                tools=get_tool_schemas(self.backend.context_window),
+                max_tokens=MAX_RESPONSE_TOKENS,
             )
 
             logger.debug(
@@ -228,8 +233,14 @@ class DungeonMaster:
                     logger.error("API call failed: %s", exc)
                     return f"[The DM encounters a magical disturbance. Error: {exc}]"
 
-            # Track token usage
+            # Track token usage; report the real prompt size to the context
+            # manager (total = uncached input + cache reads + cache writes).
             self.token_stats.record(result.usage)
+            self.context_manager.last_actual_prompt_tokens = (
+                result.usage.input_tokens
+                + result.usage.cache_read_tokens
+                + result.usage.cache_creation_tokens
+            )
             logger.debug(
                 "API response: %d input tokens, %d output tokens, %d tool calls, text=%d chars",
                 result.usage.input_tokens,

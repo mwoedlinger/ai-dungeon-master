@@ -242,9 +242,21 @@ class ContextManager:
     def __init__(self, campaign: "CampaignData", game_state: "GameState"):
         self.campaign = campaign
         self.game_state = game_state
-        self.full_history: list[dict] = []
         # Hydrate from persistent journal if available
         self.story_summary: str = game_state.journal.conversation_summary
+        # Actual prompt size reported by the last API response (input +
+        # cache tokens). More accurate than the char-count estimate; used as
+        # an additional compression trigger.
+        self.last_actual_prompt_tokens: int = 0
+
+    @property
+    def full_history(self) -> list[dict]:
+        """Conversation history, backed by GameState so it survives save/load."""
+        return self.game_state.conversation_history
+
+    @full_history.setter
+    def full_history(self, value: list[dict]) -> None:
+        self.game_state.conversation_history = value
 
     def _thresholds(self, context_window: int) -> tuple[int, int]:
         """Derive (history_budget, summary_trigger) from the model's context window.
@@ -332,18 +344,25 @@ class ContextManager:
             self.compress_if_needed(backend, force=True)
 
         # If still over budget after compression, trim oldest messages —
-        # but only cut at safe start boundaries.
-        if self._estimate_tokens() <= effective_budget:
+        # but only cut at safe start boundaries. Per-message sizes are
+        # computed once and combined via suffix sums (O(n), not O(n²)).
+        sizes = [len(json.dumps(m)) // 3 for m in self.full_history]
+        if sum(sizes) <= effective_budget:
             return self.full_history
+
+        suffix = 0
+        suffix_tokens = [0] * (len(sizes) + 1)
+        for i in range(len(sizes) - 1, -1, -1):
+            suffix += sizes[i]
+            suffix_tokens[i] = suffix
 
         boundaries = [
             i for i, msg in enumerate(self.full_history)
             if self._is_safe_history_start(msg)
         ]
         for b in boundaries:
-            candidate = self.full_history[b:]
-            if self._estimate_tokens(candidate) <= effective_budget:
-                return candidate
+            if suffix_tokens[b] <= effective_budget:
+                return self.full_history[b:]
         # Nothing fits — send from the last safe boundary (smallest valid slice)
         if boundaries:
             return self.full_history[boundaries[-1]:]
@@ -418,7 +437,10 @@ class ContextManager:
         compression API call succeeds — a failure preserves all history.
         """
         _, trigger = self._thresholds(backend.context_window)
-        current_tokens = self._estimate_tokens()
+        # Prefer the real prompt size reported by the API over the char-count
+        # estimate when available — the estimate can drift badly on tool-heavy
+        # histories.
+        current_tokens = max(self._estimate_tokens(), self.last_actual_prompt_tokens)
 
         if not force and current_tokens < trigger:
             return
@@ -489,6 +511,9 @@ class ContextManager:
         tokens_before = self._estimate_tokens()
         self.full_history = self.full_history[n_to_compress:]
         tokens_after = self._estimate_tokens()
+        # The last reported prompt size refers to the pre-prune history —
+        # stale now, and keeping it would re-trigger compression every turn.
+        self.last_actual_prompt_tokens = 0
 
         parsed = _parse_compress_output(raw_output)
 

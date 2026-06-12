@@ -155,6 +155,8 @@ def end_turn(game_state) -> dict:
 
 def end_combat(game_state, xp_awarded: int) -> dict:
     """End combat, distribute XP, check for level-ups."""
+    if not game_state.combat.active:
+        return {"success": False, "error": "No active combat to end."}
     game_state.combat = CombatState()  # reset to inactive state
 
     # Remove monsters from characters dict

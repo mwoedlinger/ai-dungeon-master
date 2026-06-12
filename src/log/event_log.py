@@ -44,10 +44,23 @@ class EventLog:
             self._persist_path = Path(persist_path)
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             try:
+                self._rotate_if_large(self._persist_path)
                 self._file = open(self._persist_path, "a")
                 logger.debug("Event log persisting to %s", self._persist_path)
             except OSError as exc:
                 logger.warning("Could not open event log file %s: %s", persist_path, exc)
+
+    _MAX_LOG_BYTES = 5 * 1024 * 1024  # rotate at 5 MB so the file doesn't grow forever
+
+    @staticmethod
+    def _rotate_if_large(path: Path) -> None:
+        """Rotate an oversized log to <name>.1 (replacing any previous rotation)."""
+        try:
+            if path.exists() and path.stat().st_size > EventLog._MAX_LOG_BYTES:
+                path.replace(path.with_name(path.name + ".1"))
+                logger.info("Rotated oversized event log to %s.1", path.name)
+        except OSError:
+            logger.warning("Event log rotation failed", exc_info=True)
 
     def log(self, tool_name: str, inputs: dict, result: dict) -> None:
         entry = EventEntry(

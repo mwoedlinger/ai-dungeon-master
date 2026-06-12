@@ -98,9 +98,9 @@ class SessionManager:
                 raise EOFError
             return
 
-        # Legacy bare-word shortcuts for backward compat
+        # Legacy bare-word shortcuts — behave exactly like /quit (save + exit)
         if player_input.lower() in ("quit", "exit", "q"):
-            self._process_and_render("[Player requests to save and quit the session.]")
+            try_handle_command("/quit", self._build_command_context())
             raise EOFError
 
         self._process_and_render(player_input)
@@ -171,13 +171,17 @@ class SessionManager:
                 self._erase_combat_status()
                 return
             if player_input.lower() in ("quit", "exit", "q"):
+                try_handle_command("/quit", self._build_command_context())
                 raise EOFError
 
             # Erase status bar + input line, then show turn content
             self._combat_status_lines += 1  # the input line
             self._erase_combat_status()
             display_turn_separator(current_char.name, is_player=True)
-            self._process_and_render(f"[{current_char.name}]: {player_input}", combat=True)
+            self._process_and_render(
+                f"[{current_char.name}]: {player_input}",
+                combat=True, turn_scope=current_id,
+            )
         else:
             # Monster turn — DM acts automatically; erase status bar first
             self._erase_combat_status()
@@ -186,7 +190,7 @@ class SessionManager:
                 f"[DM: It is {current_char.name}'s turn. "
                 f"Call get_monster_actions('{current_id}') first, "
                 f"then resolve their actions, then call end_turn().]",
-                combat=True,
+                combat=True, turn_scope=current_id,
             )
             # If the LLM narrated but never called end_turn, the same monster
             # would be prompted again forever — force the turn to advance.
@@ -200,6 +204,7 @@ class SessionManager:
 
     def _handle_dying_player_turn(self, current_id: str, current_char) -> None:
         """Roll a death save for an unconscious PC (or skip if stable), then end the turn."""
+        self.dm.tool_dispatcher.set_turn_scope(current_id)
         dispatch = self.dm.tool_dispatcher.dispatch
         if "stable" in current_char.conditions:
             console.print(f"[dim]{current_char.name} is stable but unconscious — turn skipped.[/dim]")
@@ -224,8 +229,17 @@ class SessionManager:
                                   f"({outcome}) — {succ}✓ {fail}✗[/yellow]")
         dispatch("end_turn", {})
 
-    def _process_and_render(self, player_input: str, *, combat: bool = False) -> None:
-        """Process input with streaming output, then show dice rolls and narrative."""
+    def _process_and_render(
+        self, player_input: str, *, combat: bool = False,
+        turn_scope: str = "",
+    ) -> None:
+        """Process input with streaming output, then show dice rolls and narrative.
+
+        *turn_scope* restricts which combatant this render may resolve:
+        the current combatant's id during combat turns, "" otherwise (so a
+        combat started mid-render locks until the first turn is prompted).
+        """
+        self.dm.tool_dispatcher.set_turn_scope(turn_scope)
         loc_before = self.game_state.world.current_location_id
         loc = self.game_state.world.locations.get(loc_before)
         loc_name = loc.name if loc else ""
@@ -254,6 +268,10 @@ class SessionManager:
             self._flush_dice_rolls()
             if response:
                 display_narrative(response, location_name=loc_name, combat=combat)
+
+        # Rolls logged after streaming began would otherwise surface under the
+        # NEXT render's turn separator — flush them here, where they belong.
+        self._flush_dice_rolls()
 
         # Check for location transition
         loc_after = self.game_state.world.current_location_id

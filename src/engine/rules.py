@@ -290,12 +290,66 @@ def is_proficient_with_weapon(char: Character, weapon) -> bool:
 
 
 def effective_ac(target: Character) -> int:
-    """Target AC including attuned magic armor/shield bonuses."""
+    """Target AC including attuned magic armor/shield bonuses and Shield spell."""
     ac = target.ac
     for mi in getattr(target, "attuned_items", []):
         if mi.item_type in ("armor", "shield"):
             ac += mi.bonus
+    if "shielded" in target.conditions:  # Shield spell: +5 AC until next turn
+        ac += 5
     return ac
+
+
+def resolve_attack(
+    attacker: Character,
+    target: Character,
+    *,
+    attack_bonus: int,
+    damage_dice: str,
+    damage_type: str,
+    damage_bonus: int = 0,
+    advantage: bool = False,
+    disadvantage: bool = False,
+) -> AttackResult:
+    """Shared d20 attack resolution for weapon, spell, and monster attacks.
+
+    Applies condition-based advantage/disadvantage for both sides, effective
+    AC (attuned items, Shield), nat-20/nat-1 rules, and rolls damage with
+    dice doubled on a crit. Damage is the rolled amount — callers apply it
+    via apply_damage so resistances/immunities are honored uniformly.
+    """
+    atk_flags = _condition_modifiers(attacker)
+    tgt_flags = _condition_modifiers(target)
+    if atk_flags["attack_advantage"] or tgt_flags["attacked_advantage"]:
+        advantage = True
+    if atk_flags["attack_disadvantage"] or tgt_flags["attacked_disadvantage"]:
+        disadvantage = True
+
+    roll = roll_dice("1d20", advantage=advantage, disadvantage=disadvantage)
+    raw = roll.kept_roll if roll.kept_roll is not None else roll.individual_rolls[0]
+    is_crit = raw == 20
+    is_nat1 = raw == 1
+    target_ac = effective_ac(target)
+    hits = is_crit or (not is_nat1 and raw + attack_bonus >= target_ac)
+
+    damage: int | None = None
+    if hits:
+        damage = roll_dice(damage_dice).total
+        if is_crit:
+            damage += roll_dice(damage_dice).total
+        damage += damage_bonus
+
+    return AttackResult(
+        roll=roll,
+        attack_bonus=attack_bonus,
+        total_attack=raw + attack_bonus,
+        target_ac=target_ac,
+        hits=hits,
+        is_crit=is_crit,
+        is_nat1=is_nat1,
+        damage=damage,
+        damage_type=damage_type,
+    )
 
 
 def attack_roll(
@@ -305,23 +359,6 @@ def attack_roll(
     advantage: bool = False,
     disadvantage: bool = False,
 ) -> AttackResult:
-    # Auto-apply condition-based advantage/disadvantage
-    atk_flags = _condition_modifiers(attacker)
-    tgt_flags = _condition_modifiers(target)
-    if atk_flags["attack_advantage"]:
-        advantage = True
-    if atk_flags["attack_disadvantage"]:
-        disadvantage = True
-    if tgt_flags["attacked_advantage"]:
-        advantage = True
-    if tgt_flags["attacked_disadvantage"]:
-        disadvantage = True
-
-    roll = roll_dice("1d20", advantage=advantage, disadvantage=disadvantage)
-    raw = roll.kept_roll if roll.kept_roll is not None else roll.individual_rolls[0]
-    is_crit = raw == 20
-    is_nat1 = raw == 1
-
     # Magic weapon bonus (from attuned items)
     magic_attack_bonus = 0
     magic_damage_bonus = 0
@@ -332,6 +369,8 @@ def attack_roll(
             break
 
     if weapon.attack_bonus_override is not None:
+        # Monster statblock attacks: bonus is pre-computed and damage dice
+        # already include the modifier (e.g. "1d6+2").
         attack_bonus = weapon.attack_bonus_override + magic_attack_bonus
         ability_mod = 0
     else:
@@ -346,29 +385,14 @@ def attack_roll(
         prof_bonus = attacker.proficiency_bonus if is_proficient_with_weapon(attacker, weapon) else 0
         attack_bonus = ability_mod + prof_bonus + magic_attack_bonus
 
-    target_ac = effective_ac(target)
-
-    hits = is_crit or (not is_nat1 and raw + attack_bonus >= target_ac)
-
-    damage: int | None = None
-    if hits:
-        damage_roll = roll_dice(weapon.damage_dice)
-        damage = damage_roll.total
-        if is_crit:
-            crit_roll = roll_dice(weapon.damage_dice)
-            damage += crit_roll.total
-        damage += ability_mod + magic_damage_bonus
-
-    return AttackResult(
-        roll=roll,
+    return resolve_attack(
+        attacker, target,
         attack_bonus=attack_bonus,
-        total_attack=raw + attack_bonus,
-        target_ac=target_ac,
-        hits=hits,
-        is_crit=is_crit,
-        is_nat1=is_nat1,
-        damage=damage,
+        damage_dice=weapon.damage_dice,
         damage_type=weapon.damage_type,
+        damage_bonus=ability_mod + magic_damage_bonus,
+        advantage=advantage,
+        disadvantage=disadvantage,
     )
 
 
@@ -533,6 +557,10 @@ def apply_damage(target: Character, amount: int, damage_type: str) -> dict:
 
 def apply_healing(target: Character, amount: int) -> dict:
     """Heal a character. Revives unconscious or stable characters at 0 HP."""
+    if amount < 0:
+        return {"success": False, "error": "Healing amount must be non-negative."}
+    if "dead" in target.conditions:
+        return {"success": False, "error": f"{target.name} is dead — healing has no effect (resurrection magic required)."}
     was_down = target.hp == 0 and (
         "unconscious" in target.conditions or "stable" in target.conditions
     )
