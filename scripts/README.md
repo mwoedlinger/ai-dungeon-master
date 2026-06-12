@@ -62,3 +62,34 @@ Downloads monsters, spells, equipment, classes, races, conditions, skills, and f
 ## generate_character.py
 
 Generates a character JSON file via LLM. Used less often since the game has interactive character creation built in.
+
+## debug_agent/
+
+QA debug agent: plays the game headlessly and tries to break each subsystem,
+appending pass/fail reports to `reports/<scenario>.md`. Three tiers, ordered
+by cost:
+
+| Tier | What it does | Cost |
+|------|-------------|------|
+| `engine` | Drives the ToolDispatcher directly with adversarial tool calls (guards, dice fuzz, full combat lifecycle under turn scope). Deterministic (seeded). | Free — no API key |
+| `scripted` | Fixed player-input lists against the LLM DM (prompt injection, malformed input, resource audits, combat-turn baiting). | DM calls only |
+| `ai` | Adversarial LLM player improvises inputs against the LLM DM. | DM + player calls |
+
+```bash
+python scripts/debug_agent/run.py --list     # show all scenarios per tier
+python scripts/debug_agent/run.py --free     # engine tier only (no API key, <1s)
+python scripts/debug_agent/run.py --cheap    # engine + scripted (no player AI)
+python scripts/debug_agent/run.py            # everything
+python scripts/debug_agent/run.py --scenario combat_stress --provider anthropic
+```
+
+Combat scenarios run under **session emulation** by default: the runner sets
+the per-render turn scope and prompts each monster turn separately, exactly
+like the CLI session — so turn-scope enforcement is actually exercised.
+`--max-monster-turns N` (default 4) bounds the LLM cost per player input;
+`--no-session-emulation` restores the legacy single-render combat mode.
+
+Reports include a per-scenario cost line (DM API calls + estimated USD).
+Failure classes: `exception`, `hang` (per-turn timeout), `state_inconsistency`
+(invariant checks after every turn), `tool_error` (engine tier: a guard that
+didn't hold). The engine tier also runs in CI via `tests/test_debug_agent.py`.

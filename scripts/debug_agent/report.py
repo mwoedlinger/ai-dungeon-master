@@ -45,6 +45,10 @@ class ScenarioSummary:
     turn_log: list[TurnLog] = field(default_factory=list)
     failure_count: int = 0
     warning_count: int = 0
+    kind: str = "ai"  # "ai" | "scripted" | "engine"
+    dm_calls: int = 0
+    player_calls: int = 0
+    cost_usd: float = 0.0
 
 
 class ReportCollector:
@@ -101,6 +105,15 @@ class ReportCollector:
         # Scenario summary
         if summary:
             lines.append(f"Turns: {summary.setup_turns} setup + {summary.ai_turns} AI = {summary.setup_turns + summary.ai_turns} total  ")
+            if summary.kind == "engine":
+                lines.append("Cost: free (engine-only, no LLM)  ")
+            else:
+                lines.append(
+                    f"Cost: {summary.dm_calls} DM call(s)"
+                    + (f" + {summary.player_calls} player call(s)" if summary.player_calls else "")
+                    + (f" ≈ ${summary.cost_usd:.4f} (DM side)" if summary.cost_usd else "")
+                    + "  "
+                )
 
             if summary.initial_state and summary.final_state:
                 lines.append(f"Initial: `{_brief_snapshot(summary.initial_state)}`  ")
@@ -179,10 +192,12 @@ def validate_state(gs: "GameState") -> list[str]:
         if char.death_saves.failures < 0 or char.death_saves.failures > 3:
             issues.append(f"{char.name} ({cid}) death save failures out of range: {char.death_saves.failures}")
 
-        # Dead character in combat turn order
+        # Dead monsters legitimately stay in turn_order (end_turn skips them;
+        # removing mid-round would corrupt current_turn_index) — but the
+        # CURRENT combatant being a dead monster means the skip logic failed.
         if char.hp <= 0 and not char.is_player and gs.combat.active:
-            if cid in gs.combat.turn_order:
-                issues.append(f"Dead NPC/monster {char.name} ({cid}) still in combat turn order")
+            if gs.combat.current_combatant_id == cid:
+                issues.append(f"Dead monster {char.name} ({cid}) is the current combatant")
 
     # Combat state consistency
     if gs.combat.active:

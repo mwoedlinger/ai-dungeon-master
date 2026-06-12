@@ -24,6 +24,81 @@ class TurnResult:
     state: dict = field(default_factory=dict)
 
 
+def _build_state(
+    campaign_path: str,
+    characters_path: str | None,
+) -> tuple[Any, GameState]:
+    """Load campaign + characters and build a fresh GameState."""
+    load_srd_data()
+
+    cp = Path(campaign_path)
+    if not cp.exists():
+        cp = cp.with_suffix(".json")
+    campaign = load_campaign(cp)
+
+    if characters_path and Path(characters_path).exists():
+        data = json.loads(Path(characters_path).read_text())
+        characters: dict[str, Character] = {}
+        pc_ids: list[str] = []
+        for char_data in data.get("characters", []):
+            char = Character.model_validate(char_data)
+            characters[char.id] = char
+            if char.is_player:
+                pc_ids.append(char.id)
+    else:
+        characters, pc_ids = _default_characters()
+
+    starting_loc = campaign.starting_location_id or next(iter(campaign.locations))
+    world = WorldState(
+        current_location_id=starting_loc,
+        locations=dict(campaign.locations),
+        quests=[
+            Quest(
+                id=h.id,
+                title=h.title,
+                description=h.description,
+                status="active",
+                objectives=[h.description],
+                rewards=h.rewards,
+            )
+            for h in campaign.plot_hooks[:2]
+        ],
+    )
+    game_state = GameState(
+        player_character_ids=pc_ids,
+        characters=characters,
+        world=world,
+        campaign=campaign,
+    )
+    return campaign, game_state
+
+
+class EngineHarness:
+    """ToolDispatcher-only driver — no LLM backend, zero API cost.
+
+    Used by engine scenarios to fuzz the deterministic rules engine
+    directly through the same dispatch path the DM uses.
+    """
+
+    def __init__(
+        self,
+        campaign_path: str = "campaigns/shattered_crown.json",
+        characters_path: str | None = None,
+        seed: int | None = None,
+    ) -> None:
+        if seed is not None:
+            import random
+            random.seed(seed)
+        from src.dm.tools import ToolDispatcher
+
+        self.campaign, self.game_state = _build_state(campaign_path, characters_path)
+        self.event_log = EventLog(self.game_state)
+        self.dispatcher = ToolDispatcher(
+            self.game_state, self.event_log,
+            save_path="/dev/null", campaign=self.campaign,
+        )
+
+
 class HeadlessHarness:
     """Drives the game without any UI. Instantiates GameState + DungeonMaster directly."""
 
@@ -34,51 +109,7 @@ class HeadlessHarness:
         provider: str = "deepseek",
         model: str | None = None,
     ) -> None:
-        load_srd_data()
-
-        # Load campaign
-        cp = Path(campaign_path)
-        if not cp.exists():
-            cp = cp.with_suffix(".json")
-        self.campaign = load_campaign(cp)
-
-        # Load or create characters
-        if characters_path and Path(characters_path).exists():
-            data = json.loads(Path(characters_path).read_text())
-            characters: dict[str, Character] = {}
-            pc_ids: list[str] = []
-            for char_data in data.get("characters", []):
-                char = Character.model_validate(char_data)
-                characters[char.id] = char
-                if char.is_player:
-                    pc_ids.append(char.id)
-        else:
-            characters, pc_ids = _default_characters()
-
-        # Build game state
-        starting_loc = self.campaign.starting_location_id or next(iter(self.campaign.locations))
-        world = WorldState(
-            current_location_id=starting_loc,
-            locations=dict(self.campaign.locations),
-            quests=[
-                Quest(
-                    id=h.id,
-                    title=h.title,
-                    description=h.description,
-                    status="active",
-                    objectives=[h.description],
-                    rewards=h.rewards,
-                )
-                for h in self.campaign.plot_hooks[:2]
-            ],
-        )
-        self.game_state = GameState(
-            player_character_ids=pc_ids,
-            characters=characters,
-            world=world,
-            campaign=self.campaign,
-        )
-
+        self.campaign, self.game_state = _build_state(campaign_path, characters_path)
         self.event_log = EventLog(self.game_state)
 
         self.dm = DungeonMaster(
@@ -90,8 +121,18 @@ class HeadlessHarness:
             save_path="/dev/null",  # no autosave during debug runs
         )
 
-    def step(self, player_input: str, timeout: float = 120.0) -> TurnResult:
-        """Execute one game turn. Returns structured result."""
+    def step(
+        self,
+        player_input: str,
+        timeout: float = 120.0,
+        turn_scope: str | None = None,
+    ) -> TurnResult:
+        """Execute one game turn. Returns structured result.
+
+        *turn_scope* mirrors the CLI session's per-render restriction:
+        the current combatant's id during combat turns, "" for exploration
+        renders, or None (default) for legacy unrestricted behavior.
+        """
         import signal
 
         def _timeout_handler(signum: int, frame: Any) -> None:
@@ -102,6 +143,7 @@ class HeadlessHarness:
         signal.alarm(int(timeout))
 
         try:
+            self.dm.tool_dispatcher.set_turn_scope(turn_scope)
             narrative = self.dm.process_player_input(player_input)
             signal.alarm(0)
             return TurnResult(ok=True, narrative=narrative, state=self._snapshot())
