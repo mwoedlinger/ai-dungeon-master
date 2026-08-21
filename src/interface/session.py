@@ -29,6 +29,12 @@ class TurnMode(str, Enum):
     COMBAT = "combat"
 
 
+# Bare words (no slash) that open an interactive management screen.
+_INVENTORY_WORDS = {"i", "inv", "inventory"}
+_CHARACTER_WORDS = {"c", "char", "character"}
+_SCREEN_WORDS = _INVENTORY_WORDS | _CHARACTER_WORDS
+
+
 class SessionManager:
     def __init__(
         self,
@@ -79,6 +85,44 @@ class SessionManager:
             save_path=self.save_path,
         )
 
+    def _maybe_open_screen(self, player_input: str) -> bool:
+        """Open an interactive management screen for a bare hotkey word.
+
+        Returns True if *player_input* was a screen hotkey (and was handled).
+        Falls back to the static slash-command render when there's no TTY, so the
+        headless harness and piped stdin keep working unchanged.
+        """
+        word = player_input.lower()
+        if word not in _SCREEN_WORDS:
+            return False
+
+        from src.interface.screens.menu import interactive_status
+
+        interactive, reason = interactive_status()
+        if not interactive:
+            console.print(f"[dim]Interactive screen unavailable ({reason}); showing text view.[/dim]")
+
+        if word in _INVENTORY_WORDS:
+            if interactive:
+                from src.interface.screens.inventory_screen import run_inventory_screen
+                run_inventory_screen(self.game_state)
+            else:
+                try_handle_command("/inventory", self._build_command_context())
+        else:  # character
+            self._open_character_sheet(interactive)
+        return True
+
+    def _open_character_sheet(self, interactive: bool) -> None:
+        if interactive:
+            from src.interface.screens.character_screen import run_character_screen
+            run_character_screen(self.game_state)
+            return
+        # Non-TTY fallback: print every player's static sheet.
+        from src.interface.commands import _show_character_sheet
+        ctx = self._build_command_context()
+        for p in self.game_state.player_characters:
+            _show_character_sheet(p.id, ctx)
+
     def _exploration_input_loop(self) -> None:
         display_status_bar(self.game_state)
         console.print("")
@@ -88,6 +132,10 @@ class SessionManager:
             raise
 
         if not player_input:
+            return
+
+        # Interactive management screens (bare hotkeys: i / c)
+        if self._maybe_open_screen(player_input):
             return
 
         # Handle slash commands
@@ -161,6 +209,13 @@ class SessionManager:
                 raise
             if not player_input:
                 self._erase_combat_status()
+                return
+            # Management screens work in combat too — clear the status bar first
+            # so the modal draws on a clean area, then re-render on return.
+            if player_input.lower() in _SCREEN_WORDS:
+                self._combat_status_lines += 1  # the input line
+                self._erase_combat_status()
+                self._maybe_open_screen(player_input)
                 return
             # Slash commands work in combat too
             if player_input.startswith("/"):

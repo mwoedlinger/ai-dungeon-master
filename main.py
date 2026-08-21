@@ -44,6 +44,8 @@ def parse_args() -> argparse.Namespace:
                    help="Print tool calls, inputs, and results in real-time alongside narrative")
     p.add_argument("--verbose", action="store_true",
                    help="Enable verbose logging (compression events, token usage, context management)")
+    p.add_argument("--log", action="store_true",
+                   help="Log terminal output to logs/terminal.log and full debug output to logs/debug.log")
     return p.parse_args()
 
 
@@ -157,6 +159,17 @@ _AUTH_HELP = {
 }
 
 
+def _is_auth_error(error: Exception) -> bool:
+    """Heuristic: does this exception look like an authentication failure?"""
+    name = type(error).__name__.lower()
+    msg = str(error).lower()
+    if "authentication" in name or "permissiondenied" in name:
+        return True
+    return any(s in msg for s in (
+        "api key", "api_key", "authentication", "unauthorized", "401", "invalid x-api-key",
+    ))
+
+
 def _handle_auth_error(error: Exception, provider: str) -> None:
     """Print a user-friendly message for authentication errors."""
     env_var, url, example = _AUTH_HELP.get(provider, (None, None, None))
@@ -172,23 +185,52 @@ def _handle_auth_error(error: Exception, provider: str) -> None:
     sys.exit(1)
 
 
+class _TeeWriter:
+    """Write to both the original stream and a log file."""
+
+    def __init__(self, original, log_file):
+        self.original = original
+        self.log_file = log_file
+
+    def write(self, data: str) -> int:
+        self.original.write(data)
+        self.log_file.write(data)
+        self.log_file.flush()
+        return len(data)
+
+    def flush(self) -> None:
+        self.original.flush()
+        self.log_file.flush()
+
+    def fileno(self):
+        return self.original.fileno()
+
+    @property
+    def encoding(self):
+        return getattr(self.original, "encoding", "utf-8")
+
+    def isatty(self) -> bool:
+        return self.original.isatty()
+
+
 def _setup_logging(
     debug: bool = False,
     verbose: bool = False,
+    log: bool = False,
     log_dir: str = "logs",
-) -> Path | None:
+) -> dict[str, Path | None]:
     """Configure structured logging based on CLI flags.
 
-    When *debug* is True, a debug log file is written to *log_dir*/ with the
-    full DEBUG stream (including all LLM I/O).  The console only shows WARNING
-    unless *verbose* (→ INFO) or *debug* (→ DEBUG) is set.
+    When *debug* is True, a timestamped debug log file is written.
+    When *log* is True, ``logs/terminal.log`` captures all terminal output
+    and ``logs/debug.log`` captures the full DEBUG stream (incl. LLM I/O).
 
-    Returns the path to the debug log file, or None.
+    Returns dict with ``debug_log`` and ``terminal_log`` paths (or None).
     """
     console_level = logging.WARNING
     if debug:
         console_level = logging.DEBUG
-    elif verbose:
+    elif verbose or log:
         console_level = logging.INFO
 
     logging.basicConfig(
@@ -202,9 +244,35 @@ def _setup_logging(
     for noisy in ("httpx", "httpcore", "urllib3", "google", "openai"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
-    # Always write a debug log file when --debug is on
-    debug_log_path = None
-    if debug:
+    result: dict[str, Path | None] = {"debug_log": None, "terminal_log": None}
+
+    # --log: always write debug.log and terminal.log to logs/
+    if log:
+        log_dir_path = Path(log_dir)
+        log_dir_path.mkdir(parents=True, exist_ok=True)
+
+        # Debug log — full DEBUG stream including LLM calls
+        debug_log_path = log_dir_path / "debug.log"
+        file_handler = logging.FileHandler(debug_log_path, mode="w", encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        logging.getLogger().addHandler(file_handler)
+        logging.getLogger().setLevel(logging.DEBUG)
+        result["debug_log"] = debug_log_path
+
+        # Terminal log — tee all Rich console and stdout output to file
+        terminal_log_path = log_dir_path / "terminal.log"
+        terminal_file = open(terminal_log_path, "w", encoding="utf-8")  # noqa: SIM115
+        tee = _TeeWriter(sys.stdout, terminal_file)
+        sys.stdout = tee  # type: ignore[assignment]
+        console.file = tee  # type: ignore[assignment]
+        result["terminal_log"] = terminal_log_path
+
+    # --debug: timestamped debug log (original behavior)
+    elif debug:
         from datetime import datetime
         log_dir_path = Path(log_dir)
         log_dir_path.mkdir(parents=True, exist_ok=True)
@@ -217,10 +285,10 @@ def _setup_logging(
             datefmt="%Y-%m-%d %H:%M:%S",
         ))
         logging.getLogger().addHandler(file_handler)
-        # Ensure root logger level captures DEBUG for the file handler
         logging.getLogger().setLevel(logging.DEBUG)
+        result["debug_log"] = debug_log_path
 
-    return debug_log_path
+    return result
 
 
 def _debug_tool_callback(tool_name: str, inputs: dict, result: dict) -> None:
@@ -244,9 +312,11 @@ def main() -> None:
     args = parse_args()
 
     # Set up logging based on flags
-    debug_log_path = _setup_logging(debug=args.debug, verbose=args.verbose)
-    if debug_log_path:
-        console.print(f"[dim]Debug log: {debug_log_path}[/dim]")
+    log_paths = _setup_logging(debug=args.debug, verbose=args.verbose, log=args.log)
+    if log_paths["debug_log"]:
+        console.print(f"[dim]Debug log: {log_paths['debug_log']}[/dim]")
+    if log_paths["terminal_log"]:
+        console.print(f"[dim]Terminal log: {log_paths['terminal_log']}[/dim]")
 
     # Load SRD data
     load_srd_data()
@@ -282,8 +352,11 @@ def main() -> None:
     game_state = load_game_state(args, campaign)
     game_state.campaign = campaign
 
+    # All progress is written back to the file we loaded from: an explicitly
+    # passed --save takes precedence over the autosave path.
+    save_path = Path(args.save or args.autosave)
+
     # Set up persistent event log alongside the save file
-    save_path = Path(args.autosave)
     event_log_path = save_path.with_suffix(".events.jsonl")
     event_log = EventLog(game_state, persist_path=event_log_path)
 
@@ -298,11 +371,12 @@ def main() -> None:
             event_log=event_log,
             provider=args.provider,
             model=args.model,
-            save_path=args.autosave,
+            save_path=str(save_path),
             debug=args.debug,
         )
     except Exception as e:
-        _handle_auth_error(e, args.provider)
+        if _is_auth_error(e):
+            _handle_auth_error(e, args.provider)
         raise
 
     # Wire up debug tool callback
@@ -317,14 +391,13 @@ def main() -> None:
     ]
 
     # Run session
-    session = SessionManager(dm, game_state, event_log, player_names, save_path=args.autosave)
+    session = SessionManager(dm, game_state, event_log, player_names, save_path=str(save_path))
     try:
         session.run()
-    except TypeError as e:
-        if "authentication" in str(e).lower() or "api_key" in str(e).lower():
+    except Exception as e:
+        if _is_auth_error(e):
             _handle_auth_error(e, args.provider)
-        else:
-            raise
+        raise
     finally:
         # Print session token stats
         stats = dm.token_stats.summary()

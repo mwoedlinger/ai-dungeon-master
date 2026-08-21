@@ -218,3 +218,5 @@ ui/node_modules/
 ui/dist/
 
 .ignore
+# macOS
+.DS_Store

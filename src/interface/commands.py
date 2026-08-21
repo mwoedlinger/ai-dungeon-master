@@ -35,6 +35,10 @@ def _cmd_help(args: str, ctx: CommandContext) -> None:
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column("Command", style="bold cyan")
     table.add_column("Description")
+    # Interactive hotkeys come first — the intuitive path.
+    table.add_row("i", "Open the interactive inventory (arrow keys, no commands)")
+    table.add_row("c", "Open a character sheet")
+    table.add_section()
     for name, (_, desc) in sorted(COMMANDS.items()):
         table.add_row(f"/{name}", desc)
     # Dynamic character name commands
@@ -112,16 +116,47 @@ def _cmd_quests(args: str, ctx: CommandContext) -> None:
                 console.print(f"    [green]  ✓ {obj}[/green]")
 
 
+_CATEGORY_ICONS = {
+    "weapon": "⚔", "armor": "🛡", "shield": "🛡",
+    "consumable": "🧪", "magic": "✨", "gear": "•",
+}
+
+
 def _cmd_inventory(args: str, ctx: CommandContext) -> None:
-    """Show inventory for all player characters."""
+    """Show the unified inventory for all player characters via the controller."""
+    from src.engine.inventory import InventoryController
+
+    controller = InventoryController(ctx.game_state)
     for char in ctx.game_state.player_characters:
-        console.print(f"\n  [bold]{char.name}'s Inventory:[/bold]")
-        if not char.inventory:
-            console.print("    [dim]Empty[/dim]")
+        view = controller.view(char.id)
+
+        header = (
+            f"\n  [bold]{view.character_name}[/bold]"
+            f"  [yellow]{view.gold} gp[/yellow]"
+            f"  [dim]· {view.carry_weight:g}/{view.capacity:g} lb[/dim]"
+        )
+        if view.encumbrance_tier != "normal":
+            header += f"  [red]({view.encumbrance_tier})[/red]"
+        console.print(header)
+
+        equipped = [s for s in view.slots if s.item_name]
+        if equipped:
+            slots = "  ".join(f"[cyan]{s.slot.value}[/cyan] {s.item_name}" for s in equipped)
+            console.print(f"    [dim]Equipped:[/dim] {slots}")
+        if view.attunement_used:
+            console.print(
+                f"    [dim]Attuned:[/dim] {view.attunement_used}/{view.attunement_max}"
+            )
+
+        carried = [it for it in view.items if not it.equipped]
+        if not carried:
+            console.print("    [dim]Nothing else carried.[/dim]")
             continue
-        for item in char.inventory:
-            qty = f" x{item.quantity}" if item.quantity > 1 else ""
-            console.print(f"    • {item.name}{qty}")
+        for item in carried:
+            icon = _CATEGORY_ICONS.get(item.category.value, "•")
+            qty = f" [dim]x{item.quantity}[/dim]" if item.quantity > 1 else ""
+            tag = " [magenta](usable)[/magenta]" if item.category.value == "consumable" else ""
+            console.print(f"    {icon} {item.name}{qty}{tag}")
 
 
 def _cmd_location(args: str, ctx: CommandContext) -> None:
@@ -403,98 +438,8 @@ def _show_character_sheet(char_id: str, ctx: CommandContext) -> None:
     except KeyError:
         console.print(f"[red]Character not found: {char_id}[/red]")
         return
-
-    hp_color = "green" if char.hp > char.max_hp // 2 else ("yellow" if char.hp > 0 else "red")
-
-    lines: list[str] = []
-    lines.append(f"[bold]{char.name}[/bold]")
-    header = f"{char.race} {char.class_name}{f' ({char.subclass})' if char.subclass else ''} — Level {char.level}"
-    if char.background:
-        header += f" | {char.background}"
-    if char.alignment:
-        header += f" | {char.alignment}"
-    lines.append(header)
-    lines.append(f"XP: {char.xp}")
-    # Personality
-    if any([char.personality_traits, char.ideals, char.bonds, char.flaws]):
-        lines.append("")
-        if char.personality_traits:
-            lines.append(f"  Traits: {char.personality_traits}")
-        if char.ideals:
-            lines.append(f"  Ideals: {char.ideals}")
-        if char.bonds:
-            lines.append(f"  Bonds: {char.bonds}")
-        if char.flaws:
-            lines.append(f"  Flaws: {char.flaws}")
-    lines.append("")
-
-    # Ability scores
-    scores = char.ability_scores
-    lines.append("[bold]Ability Scores[/bold]")
-    for ab in ("STR", "DEX", "CON", "INT", "WIS", "CHA"):
-        val = getattr(scores, ab)
-        mod = (val - 10) // 2
-        prof = " *" if ab in char.saving_throw_proficiencies else ""
-        lines.append(f"  {ab}: {val:2d} ({mod:+d}){prof}")
-    lines.append("")
-
-    # Combat stats
-    lines.append("[bold]Combat[/bold]")
-    lines.append(f"  HP: [{hp_color}]{char.hp}/{char.max_hp}[/{hp_color}]" + (f" (+{char.temp_hp} temp)" if char.temp_hp else ""))
-    lines.append(f"  AC: {char.ac}  Speed: {char.speed} ft.")
-    lines.append(f"  Proficiency: +{char.proficiency_bonus}")
-    lines.append(f"  Hit Dice: {char.hit_dice_remaining}{char.hit_die_type}")
-    if char.conditions:
-        lines.append(f"  Conditions: {', '.join(char.conditions)}")
-    lines.append("")
-
-    # Skills
-    if char.skill_proficiencies:
-        lines.append("[bold]Skills[/bold]")
-        lines.append(f"  {', '.join(char.skill_proficiencies)}")
-        lines.append("")
-
-    # Weapons
-    if char.weapons:
-        lines.append("[bold]Weapons[/bold]")
-        for w in char.weapons:
-            props = f" ({', '.join(w.properties)})" if w.properties else ""
-            lines.append(f"  • {w.name}: {w.damage_dice} {w.damage_type}{props}")
-        lines.append("")
-
-    # Armor
-    if char.armor:
-        lines.append("[bold]Armor[/bold]")
-        lines.append(f"  {char.armor.name} (AC {char.armor.base_ac}, {char.armor.armor_type})")
-        lines.append("")
-
-    # Spells
-    if char.known_spells:
-        lines.append("[bold]Spells[/bold]")
-        if char.spellcasting_ability:
-            dc = char.spell_save_dc
-            lines.append(f"  Casting: {char.spellcasting_ability}  Save DC: {dc}")
-        if char.spell_slots:
-            slot_parts = [f"L{k}: {v}/{char.max_spell_slots.get(k, 0)}" for k, v in sorted(char.spell_slots.items())]
-            lines.append(f"  Slots: {', '.join(slot_parts)}")
-        lines.append(f"  Known: {', '.join(char.known_spells)}")
-        lines.append("")
-
-    # Class resources
-    if char.class_resources:
-        lines.append("[bold]Class Resources[/bold]")
-        for k, v in char.class_resources.items():
-            lines.append(f"  {k}: {v}")
-        lines.append("")
-
-    # Inventory
-    if char.inventory:
-        lines.append("[bold]Inventory[/bold]")
-        for item in char.inventory:
-            qty = f" x{item.quantity}" if item.quantity > 1 else ""
-            lines.append(f"  • {item.name}{qty}")
-
-    console.print(Panel("\n".join(lines), border_style="cyan", padding=(1, 2)))
+    from src.interface.cli import build_character_sheet
+    console.print(Panel(build_character_sheet(char), border_style="cyan", padding=(1, 2)))
 
 
 # ---------------------------------------------------------------------------
