@@ -6,6 +6,28 @@ import re
 
 from src.models.combat import DiceResult
 
+# Every roll goes through this generator rather than the stdlib module-level
+# functions, so a session can be seeded and replayed deterministically without
+# disturbing (or being disturbed by) anything else using `random`.
+_rng: random.Random = random.Random()
+
+
+def set_rng(rng: random.Random) -> None:
+    """Replace the engine's generator (tests, deterministic replay)."""
+    global _rng
+    _rng = rng
+
+
+def get_rng() -> random.Random:
+    """The engine's generator. Use this for any non-dice randomness too."""
+    return _rng
+
+
+def seed(value: int | None) -> random.Random:
+    """Seed the engine's generator in place and return it."""
+    _rng.seed(value)
+    return _rng
+
 
 def roll_dice(
     expr: str,
@@ -32,7 +54,7 @@ def roll_dice(
         keep = int(kh_match.group(3))
         mod_str = kh_match.group(4)
         modifier = int(mod_str.replace(" ", "")) if mod_str else 0
-        rolls = [random.randint(1, sides) for _ in range(max(n, 1))]
+        rolls = [_rng.randint(1, sides) for _ in range(max(n, 1))]
         kept = sorted(rolls, reverse=True)[:keep]
         total = sum(kept) + modifier
         return DiceResult(
@@ -67,8 +89,8 @@ def roll_dice(
     # Handle advantage/disadvantage on d20 checks
     kept_roll: int | None = None
     if sides == 20 and n == 1 and (advantage or disadvantage):
-        r1 = random.randint(1, 20)
-        r2 = random.randint(1, 20)
+        r1 = _rng.randint(1, 20)
+        r2 = _rng.randint(1, 20)
         if advantage:
             kept_roll = max(r1, r2)
         else:
@@ -85,7 +107,7 @@ def roll_dice(
             kept_roll=kept_roll,
         )
 
-    rolls = [random.randint(1, sides) for _ in range(n)]
+    rolls = [_rng.randint(1, sides) for _ in range(n)]
     total = sum(rolls) + modifier
     return DiceResult(
         expression=expr,

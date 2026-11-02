@@ -402,9 +402,9 @@ def _display_ability_check(inputs: dict, result: dict) -> None:
     char = inputs.get("character_id", "?")
     total = result.get("total", "?")
     dc = result.get("dc", "?")
-    success = result.get("success")
+    passed = result.get("passed")
 
-    mark = "[hit]✓[/hit]" if success else "[miss]✗[/miss]"
+    mark = "[hit]✓[/hit]" if passed else "[miss]✗[/miss]"
     console.print(
         f"  [dim]⊡[/dim] {char} {skill} check: "
         f"[dice.total]{total}[/dice.total] vs DC {dc} {mark}"
@@ -416,9 +416,9 @@ def _display_saving_throw(inputs: dict, result: dict) -> None:
     char = inputs.get("character_id", "?")
     total = result.get("total", "?")
     dc = result.get("dc", "?")
-    success = result.get("success")
+    passed = result.get("passed")
 
-    mark = "[hit]✓[/hit]" if success else "[miss]✗[/miss]"
+    mark = "[hit]✓[/hit]" if passed else "[miss]✗[/miss]"
     console.print(
         f"  [dim]⊡[/dim] {char} {ability} save: "
         f"[dice.total]{total}[/dice.total] vs DC {dc} {mark}"

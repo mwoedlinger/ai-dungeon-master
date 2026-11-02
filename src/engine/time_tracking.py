@@ -65,7 +65,61 @@ def advance_time(
         if expired_quests:
             result["expired_quests"] = expired_quests
 
+        # Stabilized characters regain consciousness after ~1 hour (5e: 1d4
+        # hours, simplified). Without this they stay unconscious forever, and a
+        # party wipe where everyone stabilizes has no way out.
+        total_minutes_elapsed = hours * 60 + minutes
+        revived = _wake_stable_characters(game_state, total_minutes_elapsed)
+        if revived:
+            result["revived"] = revived
+
+        downed = _party_status(game_state)
+        if downed["all_down"]:
+            result["party_down"] = downed
+
     return result
+
+
+def _wake_stable_characters(game_state: "GameState", elapsed_minutes: int) -> list[dict]:
+    """Wake stabilized characters at 1 HP once an hour has passed."""
+    if elapsed_minutes < 60 or game_state.combat.active:
+        return []
+
+    revived: list[dict] = []
+    for char in game_state.characters.values():
+        if "stable" not in char.conditions or "dead" in char.conditions:
+            continue
+        if char.hp > 0:
+            continue
+        char.hp = 1
+        for cond in ("stable", "unconscious"):
+            if cond in char.conditions:
+                char.conditions.remove(cond)
+        char.death_saves.successes = 0
+        char.death_saves.failures = 0
+        revived.append({
+            "character": char.name,
+            "character_id": char.id,
+            "hp": char.hp,
+            "note": "regained consciousness at 1 HP after resting",
+        })
+    return revived
+
+
+def _party_status(game_state: "GameState") -> dict:
+    """Summarize how much of the party is out of action."""
+    pcs = game_state.player_characters
+    down = [c for c in pcs if c.hp <= 0 or "dead" in c.conditions]
+    dead = [c for c in down if "dead" in c.conditions]
+    return {
+        "all_down": bool(pcs) and len(down) == len(pcs),
+        "down": [c.name for c in down],
+        "dead": [c.name for c in dead],
+        "note": (
+            "The entire party is out of action. Narrate the aftermath — who "
+            "found them, what it cost — rather than continuing as if they acted."
+        ),
+    }
 
 
 def travel_time(

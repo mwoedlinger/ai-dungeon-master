@@ -87,8 +87,8 @@ class EngineHarness:
         seed: int | None = None,
     ) -> None:
         if seed is not None:
-            import random
-            random.seed(seed)
+            from src.engine.dice import seed as _seed_engine
+            _seed_engine(seed)
         from src.dm.tools import ToolDispatcher
 
         self.campaign, self.game_state = _build_state(campaign_path, characters_path)

@@ -345,6 +345,46 @@ def _infer_resolution(data: dict) -> str:
 # Manual overrides for spells that need specific resolution not inferable from API data.
 # Keyed by spell name exactly as it appears in the SRD.
 _SPELL_OVERRIDES: dict[str, dict] = {
+    # --- Multi-projectile spells ---
+    # These fire several independent projectiles; the engine rolls each one
+    # separately (see src/engine/spells.py::_PROJECTILES). Magic Missile in
+    # particular used to resolve as "narrative", with a description that told
+    # the LLM to roll 1d4 three times and add 1 to each — the model doing the
+    # engine's arithmetic, which is exactly what this project forbids.
+    "Magic Missile": {
+        "resolution": "auto_damage",
+        "damage_dice": "1d4+1",
+        "damage_type": "force",
+        "upcast_bonus": "+1 dart per level above 1st",
+        "upcast_pattern": "targets",
+        "description": (
+            "Three glowing darts of magical force. Each dart automatically "
+            "hits for 1d4+1 force damage and the darts may be split among "
+            "several targets. One extra dart per slot level above 1st."
+        ),
+    },
+    "Scorching Ray": {
+        "resolution": "attack_roll",
+        "damage_dice": "2d6",
+        "damage_type": "fire",
+        "upcast_bonus": "+1 ray per level above 2nd",
+        "upcast_pattern": "targets",
+        "description": (
+            "Three rays of fire, aimed at one target or several. Each ray is a "
+            "separate ranged spell attack dealing 2d6 fire damage on a hit. "
+            "One extra ray per slot level above 2nd."
+        ),
+    },
+    "Eldritch Blast": {
+        "resolution": "attack_roll",
+        "damage_dice": "1d10",
+        "damage_type": "force",
+        "description": (
+            "Beams of crackling energy. Each beam is a separate ranged spell "
+            "attack dealing 1d10 force damage on a hit: two beams at 5th "
+            "level, three at 11th, four at 17th."
+        ),
+    },
     # Level 1
     "Shield": {"resolution": "buff", "condition_effect": "shielded",
                "description": "+5 AC until the start of your next turn (reaction)."},
@@ -504,6 +544,7 @@ def _api_spell_to_internal(data: dict) -> SpellData:
                     upcast_pattern = "flat_healing"
 
     # Apply manual overrides for specific spells
+    description_override: str | None = None
     spell_name = data.get("name", "Unknown")
     if spell_name in _SPELL_OVERRIDES:
         override = _SPELL_OVERRIDES[spell_name]
@@ -518,8 +559,17 @@ def _api_spell_to_internal(data: dict) -> SpellData:
             condition_effect = override["condition_effect"]
         if "save_negates" in override:
             save_negates = override["save_negates"]
+        if "upcast_bonus" in override:
+            upcast_bonus = override["upcast_bonus"]
+        if "upcast_pattern" in override:
+            # Load-bearing: a spell whose upcast adds *projectiles* must not
+            # also have damage dice added, or the two stack.
+            upcast_pattern = override["upcast_pattern"]
         if "description" in override:
+            # Buff spells surface their text through buff_effect; every spell
+            # surfaces it through description, which is what reaches the LLM.
             buff_effect = override["description"]
+            description_override = override["description"]
 
     return SpellData(
         name=spell_name,
@@ -538,7 +588,7 @@ def _api_spell_to_internal(data: dict) -> SpellData:
         upcast_bonus=upcast_bonus,
         upcast_pattern=upcast_pattern,
         cantrip_scaling=cantrip_scaling,
-        description=" ".join(data.get("desc", [])),
+        description=description_override or " ".join(data.get("desc", [])),
         aoe=aoe,
         condition_effect=condition_effect,
     )

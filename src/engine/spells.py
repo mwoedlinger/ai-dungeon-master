@@ -88,6 +88,48 @@ def _save_with_legendary_resistance(target: Character, ability: str, dc: int):
     return save
 
 
+# --- Multi-projectile spells --------------------------------------------------
+#
+# Some spells fire several independent projectiles: Magic Missile's three darts,
+# Scorching Ray's three rays, Eldritch Blast's beams at higher levels. Each
+# projectile is rolled separately and may be aimed at a different target, so
+# resolving one roll for the whole spell (or one per target) is badly wrong —
+# Scorching Ray at 2nd level dealt 2d6 instead of 3x2d6.
+#
+# base:        projectiles at the spell's own level
+# per_level:   additional projectiles per slot level above the spell's level
+# at_levels:   character levels at which a cantrip gains another projectile
+_PROJECTILES: dict[str, dict] = {
+    "magic missile": {"base": 3, "per_level": 1},
+    "scorching ray": {"base": 3, "per_level": 1},
+    "eldritch blast": {"base": 1, "at_levels": (5, 11, 17)},
+}
+
+
+def projectile_count(spell: SpellData, caster: Character, cast_level: int) -> int:
+    """How many separate projectiles this casting fires (1 for normal spells)."""
+    rule = _PROJECTILES.get(spell.name.strip().lower())
+    if not rule:
+        return 1
+    count = rule["base"]
+    if "at_levels" in rule:
+        count += sum(1 for lvl in rule["at_levels"] if caster.level >= lvl)
+    if "per_level" in rule and cast_level > spell.level:
+        count += rule["per_level"] * (cast_level - spell.level)
+    return max(1, count)
+
+
+def _distribute(count: int, targets: list[Character]) -> list[Character]:
+    """Assign *count* projectiles round-robin across *targets*.
+
+    Mirrors how a player declares them: spread evenly unless there is only
+    one target, in which case all projectiles land on it.
+    """
+    if not targets:
+        return []
+    return [targets[i % len(targets)] for i in range(count)]
+
+
 def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list[Character], cast_level: int) -> dict:
     """Resolve a spell's mechanical effects."""
     # Validate cast level: a spell must be cast at its own level or higher
@@ -152,7 +194,10 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
             else:
                 damage_expr = _apply_upcast(spell.damage_dice, spell, cast_level)
             damage_type = spell.damage_type or "force"
-            for target in targets:
+            # Each projectile gets its own attack roll — three rays of Scorching
+            # Ray hit or miss independently.
+            count = projectile_count(spell, caster, cast_level)
+            for target in _distribute(count, targets):
                 atk = resolve_attack(
                     caster, target,
                     attack_bonus=bonus,
@@ -171,7 +216,11 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
                     "damage": damage,
                     "hp_remaining": target.hp,
                 })
-            return {**base_result, "targets": results}
+            out = {**base_result, "targets": results}
+            if count > 1:
+                out["projectiles"] = count
+                out["total_damage"] = sum(r["damage"] or 0 for r in results)
+            return out
 
         case SpellResolution.HEALING:
             if spell.flat_healing is not None:
@@ -245,16 +294,27 @@ def resolve_spell(game_state, spell: SpellData, caster: Character, targets: list
                 damage_expr = _get_cantrip_dice(spell, caster)
             else:
                 damage_expr = _apply_upcast(spell.damage_dice, spell, cast_level)
-            results = []
-            for target in targets:
+            damage_type = spell.damage_type or "force"
+            count = projectile_count(spell, caster, cast_level)
+            per_target: dict[str, dict] = {}
+            hits: list[dict] = []
+            for target in _distribute(count, targets):
                 damage = roll_dice(damage_expr).total if damage_expr != "0" else 0
-                dmg_result = apply_damage(target, damage, spell.damage_type or "force")
-                results.append({
-                    "target": target.name,
-                    "damage": dmg_result["damage_dealt"],
-                    "hp_remaining": target.hp,
-                })
-            return {**base_result, "targets": results}
+                dmg_result = apply_damage(target, damage, damage_type)
+                hits.append({"target": target.name, "damage": dmg_result["damage_dealt"]})
+                entry = per_target.setdefault(
+                    target.name, {"target": target.name, "damage": 0, "projectiles": 0},
+                )
+                entry["damage"] += dmg_result["damage_dealt"]
+                entry["projectiles"] += 1
+                entry["hp_remaining"] = target.hp
+            results = list(per_target.values())
+            out = {**base_result, "targets": results}
+            if count > 1:
+                out["projectiles"] = count
+                out["projectile_hits"] = hits
+                out["total_damage"] = sum(h["damage"] for h in hits)
+            return out
 
         case SpellResolution.NARRATIVE:
             return {

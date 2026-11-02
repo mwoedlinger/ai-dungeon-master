@@ -197,9 +197,9 @@ function CheckEvent({
   const char = (inputs.character_id ?? "?") as string;
   const total = result.total ?? "?";
   const dc = result.dc ?? "?";
-  const success = result.success as boolean;
-  const mark = success ? "✓" : "✗";
-  const color = success ? "text-heal" : "text-danger";
+  const passed = result.passed as boolean;
+  const mark = passed ? "✓" : "✗";
+  const color = passed ? "text-heal" : "text-danger";
 
   return (
     <div className="my-1.5 px-3 py-1.5 font-mono text-xs text-text-mechanical animate-fade-in">

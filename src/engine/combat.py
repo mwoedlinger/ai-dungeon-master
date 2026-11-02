@@ -113,6 +113,30 @@ def end_turn(game_state) -> dict:
             "expired_conditions": expired,
         }
 
+    # Party defeated: every PC in the fight is dead or stabilized. None of them
+    # will act again and no death saves remain to roll, so continuing would
+    # grind through monster turns forever. End combat and let the DM narrate
+    # the aftermath.
+    pcs = [c for cid in combat.turn_order
+           if (c := _safe_get(cid)) is not None and c.is_player]
+    if pcs and all(
+        "dead" in c.conditions or ("stable" in c.conditions and c.hp <= 0)
+        for c in pcs
+    ):
+        combat.active = False
+        return {
+            "success": True,
+            "combat_over": True,
+            "reason": "party_defeated",
+            "survivors": [c.name for c in pcs if "dead" not in c.conditions],
+            "note": (
+                "Every player character is dead or unconscious. Narrate the "
+                "aftermath — who found them, what it cost — rather than "
+                "continuing the fight."
+            ),
+            "expired_conditions": expired,
+        }
+
     # Advance turn, skipping combatants that are out of the fight
     next_index = (combat.current_turn_index + 1) % n
     new_round = combat.round

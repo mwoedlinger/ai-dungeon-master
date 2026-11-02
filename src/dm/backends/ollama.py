@@ -114,9 +114,9 @@ class OllamaBackend(LLMBackend):
                                     "arguments": json.dumps(block["input"]),
                                 },
                             })
-                    msg_dict: dict = {"role": "assistant"}
-                    if text:
-                        msg_dict["content"] = text
+                    # `content` must always be present, even when empty: a
+                    # tool-only assistant turn with no content key is rejected.
+                    msg_dict: dict = {"role": "assistant", "content": text or ""}
                     if tool_calls:
                         msg_dict["tool_calls"] = tool_calls
                     wire.append(msg_dict)

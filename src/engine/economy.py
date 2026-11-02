@@ -39,6 +39,7 @@ EQUIPMENT_PRICES: dict[str, int] = {
     "potion of healing": 50, "potion of greater healing": 150,
     "potion of superior healing": 450, "potion of supreme healing": 1350,
     "antitoxin": 50,
+    "spellbook": 50,
     # Ammunition
     "arrows (20)": 1, "bolts (20)": 1, "sling bullets (20)": 0,
 }
@@ -53,16 +54,53 @@ MAGIC_ITEM_PRICE_RANGES: dict[str, tuple[int, int]] = {
 }
 
 
+def normalize_rarity(rarity: str | None) -> str | None:
+    """Map an SRD rarity string onto a MAGIC_ITEM_PRICE_RANGES key.
+
+    SRD data is inconsistent — "Very Rare", "very rare", and "Varies" all
+    occur. "Varies" carries no price information, so it falls back to the
+    least valuable tier rather than silently pricing an item at nothing.
+    """
+    if not rarity:
+        return None
+    key = rarity.strip().lower().replace(" ", "_").replace("-", "_")
+    if key in MAGIC_ITEM_PRICE_RANGES:
+        return key
+    if key in ("varies", "variable", "unknown", ""):
+        return "common"
+    return None
+
+
 def get_item_price(item_name: str, rarity: str = "common") -> int | None:
-    """Look up an item's price. Returns None if unknown."""
+    """Look up an item's price. Returns None if genuinely unknown."""
     key = item_name.lower().strip()
     if key in EQUIPMENT_PRICES:
         return EQUIPMENT_PRICES[key]
-    # Check magic item rarity pricing
-    if rarity in MAGIC_ITEM_PRICE_RANGES:
-        low, high = MAGIC_ITEM_PRICE_RANGES[rarity]
+    normalized = normalize_rarity(rarity)
+    if normalized:
+        low, high = MAGIC_ITEM_PRICE_RANGES[normalized]
         return (low + high) // 2  # midpoint as default
     return None
+
+
+def resolve_price(item_name: str, price: int | None, rarity: str = "common") -> tuple[int | None, str | None]:
+    """Settle on a price for a transaction.
+
+    A price of 0 (or None) means the caller did not specify one — the LLM
+    frequently omits it — not that the item is free. Fall back to the price
+    table, and refuse the transaction if nothing is known.
+    """
+    if price and price > 0:
+        return price, None
+    if price is not None and price < 0:
+        return None, f"Price for {item_name!r} cannot be negative."
+    looked_up = get_item_price(item_name, rarity)
+    if looked_up is None:
+        return None, (
+            f"No price known for {item_name!r}. Pass an explicit price in gp, "
+            "or use get_item_price to look one up first."
+        )
+    return looked_up, None
 
 
 def buy_item(
@@ -132,6 +170,64 @@ def sell_item(
                 "sold": quantity,
                 "gold_earned": total_gold,
                 "gold_remaining": character.gold,
+            }
+
+    # Not in the pack — it may be equipped. Weapons, armour and shields live in
+    # their own containers, so scanning `inventory` alone made a character's
+    # sword unsellable.
+    return _sell_equipped(character, item_name, price, quantity)
+
+
+def _sell_equipped(character: Character, item_name: str, price: int, quantity: int) -> dict:
+    """Sell an item occupying an equipment slot, unequipping it first."""
+    from src.engine.rules import recalculate_ac
+
+    key = item_name.lower().strip()
+
+    for i, weapon in enumerate(character.weapons):
+        if weapon.name.lower() == key:
+            if quantity > 1:
+                return {
+                    "success": False,
+                    "error": f"{character.name} has only one {weapon.name} equipped.",
+                }
+            character.weapons.pop(i)
+            character.gold += price
+            return {
+                "success": True, "item": weapon.name, "sold": 1,
+                "was_equipped": True, "slot": "weapon",
+                "gold_earned": price, "gold_remaining": character.gold,
+            }
+
+    if character.armor and character.armor.name.lower() == key:
+        name = character.armor.name
+        character.armor = None
+        character.ac = recalculate_ac(character)
+        character.gold += price
+        return {
+            "success": True, "item": name, "sold": 1,
+            "was_equipped": True, "slot": "armor", "new_ac": character.ac,
+            "gold_earned": price, "gold_remaining": character.gold,
+        }
+
+    if character.shield and key == "shield":
+        character.shield = False
+        character.ac = recalculate_ac(character)
+        character.gold += price
+        return {
+            "success": True, "item": "Shield", "sold": 1,
+            "was_equipped": True, "slot": "shield", "new_ac": character.ac,
+            "gold_earned": price, "gold_remaining": character.gold,
+        }
+
+    for i, magic in enumerate(character.attuned_items):
+        if magic.name.lower() == key:
+            return {
+                "success": False,
+                "error": (
+                    f"{character.name} is attuned to {magic.name}. "
+                    "Call unattune_item first."
+                ),
             }
 
     return {"success": False, "error": f"{character.name} does not have {item_name!r}."}

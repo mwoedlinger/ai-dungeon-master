@@ -150,7 +150,7 @@ class TestCompactToolExchange:
         ]
         result_content = [
             {"type": "tool_result", "tool_use_id": "tc2",
-             "content": json.dumps({"success": True, "total": 18})},
+             "content": json.dumps({"success": True, "passed": True, "total": 18, "dc": 15})},
         ]
         compact = _compact_tool_exchange(assistant_content, result_content)
         assert "ability_check" in compact
@@ -509,3 +509,182 @@ class TestBackendContextWindow:
                 return ""
         b = DummyBackend()
         assert b.context_window == 128_000
+
+
+class TestEngineStateFooter:
+    """Recency injection: ground-truth state at the end of the messages.
+
+    The footer rides on a *copy* of history. If that ever stops being true,
+    stale HP numbers start accumulating in save files and get summarized into
+    the journal as narrative fact — the exact failure it exists to prevent.
+    """
+
+    def _cm(self, game_state):
+        from unittest.mock import MagicMock
+        from src.dm.context import ContextManager
+        campaign = MagicMock()
+        campaign.get_location_context.return_value = "## Location\nA tavern."
+        return ContextManager(campaign, game_state)
+
+    # -- the load-bearing guarantee -------------------------------------------
+
+    def test_history_is_not_mutated(self, game_state):
+        cm = self._cm(game_state)
+        cm.add_message({"role": "user", "content": "I look around."})
+        before = json.dumps(cm.full_history)
+        cm.get_messages_for_api()
+        assert json.dumps(cm.full_history) == before
+
+    def test_returned_list_is_a_copy(self, game_state):
+        cm = self._cm(game_state)
+        cm.add_message({"role": "user", "content": "hello"})
+        msgs = cm.get_messages_for_api()
+        assert msgs is not cm.full_history
+        assert msgs[-1] is not cm.full_history[-1]
+
+    def test_tool_result_content_list_is_copied(self, game_state):
+        cm = self._cm(game_state)
+        cm.add_message({"role": "user", "content": "attack"})
+        cm.add_message({"role": "assistant", "content": [{"type": "text", "text": "ok"}]})
+        original = [{"type": "tool_result", "tool_use_id": "t1", "content": "{}"}]
+        cm.add_message({"role": "user", "content": original})
+        cm.get_messages_for_api()
+        assert len(original) == 1  # untouched
+
+    # -- placement -------------------------------------------------------------
+
+    def test_merged_into_last_user_text(self, game_state):
+        cm = self._cm(game_state)
+        cm.add_message({"role": "user", "content": "I look around."})
+        msgs = cm.get_messages_for_api()
+        assert len(msgs) == len(cm.full_history)
+        assert isinstance(msgs[-1]["content"], str)
+        assert msgs[-1]["content"].startswith("I look around.")
+        assert "<engine_state>" in msgs[-1]["content"]
+
+    def test_appended_as_text_block_after_tool_results(self, game_state):
+        cm = self._cm(game_state)
+        cm.add_message({"role": "user", "content": "I attack."})
+        cm.add_message({"role": "assistant", "content": [{"type": "text", "text": "ok"}]})
+        cm.add_message({"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": "{}"},
+        ]})
+        msgs = cm.get_messages_for_api()
+        content = msgs[-1]["content"]
+        assert content[0]["type"] == "tool_result"
+        assert content[-1]["type"] == "text"
+        assert "<engine_state>" in content[-1]["text"]
+
+    def test_appended_as_new_message_after_assistant_turn(self, game_state):
+        cm = self._cm(game_state)
+        cm.add_message({"role": "user", "content": "hi"})
+        cm.add_message({"role": "assistant", "content": "Hello there."})
+        msgs = cm.get_messages_for_api()
+        assert msgs[-1]["role"] == "user"
+        assert "<engine_state>" in msgs[-1]["content"]
+
+    def test_first_message_is_still_a_safe_start(self, game_state):
+        from src.dm.context import ContextManager
+        cm = self._cm(game_state)
+        cm.add_message({"role": "user", "content": "I look around."})
+        msgs = cm.get_messages_for_api()
+        assert ContextManager._is_safe_history_start(msgs[0])
+
+    def test_empty_history_gets_no_footer(self, game_state):
+        assert self._cm(game_state).get_messages_for_api() == []
+
+    # -- contents --------------------------------------------------------------
+
+    def test_reports_clock_and_location_id(self, game_state):
+        game_state.world.time.day = 4
+        footer = self._cm(game_state)._engine_state_footer()
+        assert "Day 4" in footer
+        assert "tavern" in footer and "The Rusty Flagon" in footer
+
+    def test_reports_gold_and_inventory(self, game_state):
+        from src.models.character import Item
+        char = game_state.characters["aldric"]
+        char.gold = 41
+        char.inventory.append(Item(name="Rope", quantity=2))
+        footer = self._cm(game_state)._engine_state_footer()
+        assert "41 gp" in footer
+        assert "Rope x2" in footer
+
+    def test_marks_equipped_items(self, game_state):
+        footer = self._cm(game_state)._engine_state_footer()
+        assert "Longsword (eq)" in footer
+
+    def test_reports_hp_conditions_and_slots(self, game_state):
+        char = game_state.characters["aldric"]
+        char.hp = 5
+        char.conditions.append("prone")
+        footer = self._cm(game_state)._engine_state_footer()
+        assert "5/28 HP" in footer
+        assert "prone" in footer
+        assert "L1:4/4" in footer  # zara's slots
+
+    def test_combat_block_only_when_active(self, game_state):
+        cm = self._cm(game_state)
+        assert "COMBAT ACTIVE" not in cm._engine_state_footer()
+        from src.models.combat import Combatant
+        game_state.combat.active = True
+        game_state.combat.round = 1
+        game_state.combat.turn_order = ["aldric"]
+        game_state.combat.combatants = {
+            "aldric": Combatant(character_id="aldric", initiative=15, movement_remaining=30),
+        }
+        assert "COMBAT ACTIVE" in cm._engine_state_footer()
+
+    def test_carries_authority_sentence(self, game_state):
+        assert "supersedes" in self._cm(game_state)._engine_state_footer()
+
+    def test_item_list_is_capped(self, game_state):
+        from src.models.character import Item
+        char = game_state.characters["aldric"]
+        char.inventory.extend(Item(name=f"Trinket {i}") for i in range(30))
+        footer = self._cm(game_state)._engine_state_footer()
+        assert "more" in footer
+        assert len(footer) < 3000
+
+    def test_survives_inventory_failure(self, game_state, monkeypatch):
+        """The footer must never be the thing that breaks a turn."""
+        import src.engine.inventory as inv
+        monkeypatch.setattr(
+            inv.InventoryController, "view",
+            lambda self, cid: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        footer = self._cm(game_state)._engine_state_footer()
+        assert "Aldric" in footer and "28/28 HP" in footer
+
+    # -- violation feedback channel -------------------------------------------
+
+    def test_pending_violations_are_rendered_then_cleared(self, game_state):
+        from src.engine.invariants import ERROR, Violation
+        cm = self._cm(game_state)
+        cm.pending_violations = [
+            Violation("HP_ABOVE_MAX", ERROR, "aldric", "hp=999 exceeds max_hp=28", "Clamp it."),
+        ]
+        footer = cm._engine_state_footer()
+        assert "ENGINE CORRECTION" in footer
+        assert "hp=999" in footer
+        assert cm.pending_violations == []
+        assert "ENGINE CORRECTION" not in cm._engine_state_footer()
+
+    # -- the system prompt no longer duplicates any of this --------------------
+
+    def test_system_prompt_has_no_live_hp(self, game_state):
+        cm = self._cm(game_state)
+        prompt = cm.build_system_prompt()
+        assert "28/28 HP" not in prompt
+        assert "28/28 HP" in cm._engine_state_footer()
+
+    def test_system_prompt_keeps_party_identity(self, game_state):
+        prompt = self._cm(game_state).build_system_prompt()
+        assert "Aldric" in prompt and "Fighter" in prompt
+
+    def test_both_system_blocks_are_cacheable(self, game_state):
+        cm = self._cm(game_state)
+        cm.story_summary = "The party met in a tavern."
+        blocks = cm.build_system_prompt_blocks()
+        assert len(blocks) == 2
+        assert all(b.get("cache_control") for b in blocks)

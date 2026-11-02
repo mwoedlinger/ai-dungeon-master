@@ -211,6 +211,30 @@ _COMBAT_TOOLS = [
         },
     },
     {
+        "name": "take_action",
+        "description": (
+            "Take a non-attack combat action: dodge, dash, disengage, help, hide "
+            "or ready. Consumes the character's action. Dodge/disengage last "
+            "until the start of that character's next turn."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "action": {
+                    "type": "string",
+                    "enum": ["dodge", "dash", "disengage", "help", "hide", "ready"],
+                },
+                "target_id": {
+                    "type": "string",
+                    "description": "Ally being helped (help), or the creature being readied against.",
+                },
+                "note": {"type": "string", "description": "What is being readied or hidden behind."},
+            },
+            "required": ["character_id", "action"],
+        },
+    },
+    {
         "name": "opportunity_attack",
         "description": "Make an opportunity attack as a REACTION when an enemy leaves the attacker's melee reach. Works outside the attacker's own turn and consumes their reaction. Melee weapons only.",
         "input_schema": {
@@ -261,7 +285,7 @@ _STATE_TOOLS = [
     },
     {
         "name": "take_short_rest",
-        "description": "Character takes a short rest. Spends hit dice to recover HP.",
+        "description": "Character takes a short rest (costs 1 hour of in-game time). Spends hit dice to recover HP. Call once per character; the clock advances once for the party.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -273,7 +297,7 @@ _STATE_TOOLS = [
     },
     {
         "name": "take_long_rest",
-        "description": "Character takes a long rest. Full HP, spell slot reset, partial hit dice recovery.",
+        "description": "Character takes a long rest (costs 8 hours of in-game time). Full HP, spell slot reset, partial hit dice recovery. Call once per character; the clock advances once for the party.",
         "input_schema": {
             "type": "object",
             "properties": {"character_id": {"type": "string"}},
@@ -291,6 +315,49 @@ _STATE_TOOLS = [
                 "quantity": {"type": "integer", "default": 1},
                 "weight": {"type": "number", "default": 0, "description": "Weight per item in lbs"},
                 "description": {"type": "string", "default": ""},
+            },
+            "required": ["character_id", "item_name"],
+        },
+    },
+    {
+        "name": "use_item",
+        "description": (
+            "Use a consumable from a character's inventory (potion, scroll, etc). "
+            "Resolves the item's effect through the engine and consumes one. "
+            "In combat this costs the character's action."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "item_name": {"type": "string"},
+            },
+            "required": ["character_id", "item_name"],
+        },
+    },
+    {
+        "name": "give_item",
+        "description": "Transfer an item from one character to another.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string", "description": "Current owner."},
+                "to_id": {"type": "string", "description": "Recipient."},
+                "item_name": {"type": "string"},
+                "quantity": {"type": "integer", "description": "Default 1."},
+            },
+            "required": ["character_id", "to_id", "item_name"],
+        },
+    },
+    {
+        "name": "drop_item",
+        "description": "Drop or discard an item. Omit quantity to drop the whole stack.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "item_name": {"type": "string"},
+                "quantity": {"type": "integer"},
             },
             "required": ["character_id", "item_name"],
         },
@@ -848,7 +915,7 @@ ALL_TOOL_SCHEMAS: list[dict] = (
 # economy, reputation, and lore-browsing tools are dropped; everything needed
 # to play (checks, combat, rests, items, travel, journal) stays.
 _CORE_TOOL_NAMES = frozenset({
-    "roll_dice", "ability_check", "saving_throw",
+    "roll_dice", "ability_check", "saving_throw", "take_action",
     "start_combat", "attack", "cast_spell", "apply_damage", "apply_healing",
     "apply_condition", "remove_condition", "get_monster_actions",
     "death_save", "end_turn", "end_combat",
@@ -874,6 +941,49 @@ def get_tool_schemas(context_window: int) -> list[dict]:
 
 _ABILITIES = frozenset({"STR", "DEX", "CON", "INT", "WIS", "CHA"})
 
+# The tool envelope owns "success" (did the call work?) and "error". A payload
+# field of the same name silently shadows it — which is exactly how a failed
+# skill check used to reach the model looking like an engine malfunction.
+_RESERVED_ENVELOPE_KEYS = frozenset({"success", "error"})
+
+
+def _ok(**payload) -> dict:
+    """Build a success envelope, refusing payloads that shadow it."""
+    clash = _RESERVED_ENVELOPE_KEYS & payload.keys()
+    if clash:
+        raise ValueError(
+            f"Tool payload may not use reserved envelope key(s) {sorted(clash)} — "
+            "rename the payload field (e.g. CheckResult.success -> 'passed')."
+        )
+    return {"success": True, **payload}
+
+
+def _check_payload(result) -> dict:
+    """Flatten a CheckResult, renaming its own `success` to `passed`.
+
+    `CheckResult.success` means "beat the DC"; the envelope's means "the call
+    worked". Both are useful, so the check outcome goes on the wire as `passed`.
+    """
+    data = result.model_dump()
+    data["passed"] = data.pop("success")
+    return data
+
+
+def _normalize_envelope(tool_name: str, result: dict) -> dict:
+    """Guarantee every tool result has a boolean `success`, and that a
+    failure always carries an `error` the model can act on."""
+    if not isinstance(result, dict):
+        raise TypeError(
+            f"{tool_name} returned {type(result).__name__}, expected dict"
+        )
+    if "success" not in result:
+        # Several engine functions return their own dicts verbatim; treat a
+        # missing key as success rather than letting callers guess.
+        result = {"success": True, **result}
+    if result["success"] is False and not result.get("error"):
+        result["error"] = f"{tool_name} failed."
+    return result
+
 # Which tools consume action economy resources
 ACTION_COSTS: dict[str, str] = {
     "attack": "action",
@@ -882,6 +992,20 @@ ACTION_COSTS: dict[str, str] = {
     "death_save": "free",  # death saves happen outside normal turns
     "use_second_wind": "bonus_action",
     "use_lay_on_hands": "action",
+    "take_action": "action",
+    "use_item": "action",
+}
+
+# Combat actions that grant a lasting effect, and the condition each applies.
+# Durations are one round: applied on this turn, they expire at the start of
+# the character's next turn, which is when end_turn ticks their durations.
+_TACTICAL_ACTIONS: dict[str, str | None] = {
+    "dodge": "dodging",
+    "disengage": "disengaging",
+    "dash": None,
+    "help": "helped",       # applied to the ally, not the actor
+    "hide": "hidden",
+    "ready": "readied",
 }
 
 
@@ -910,6 +1034,9 @@ class ToolDispatcher:
         # "" (_SCOPE_LOCKED) = combat just started or turn already passed —
         # no further combat actions this render. Set by the session manager.
         self._turn_scope: str | None = None
+        # Game time at which the last rest of each kind finished, so a
+        # party-wide rest advances the clock once rather than once per PC.
+        self._last_rest: dict[str, tuple[int, int, int]] = {}
 
         # Wire up journal manager if backend is available
         self._journal_manager = None
@@ -928,6 +1055,77 @@ class ToolDispatcher:
         or None to lift all restrictions (API server / scripts).
         """
         self._turn_scope = combatant_id
+
+    _ITEM_ACTIONS = {"use_item": "use", "give_item": "give", "drop_item": "drop"}
+
+    def _item_action(self, tool_name: str, inputs: dict) -> dict:
+        """Use / give / drop, delegated to the inventory controller.
+
+        The controller already owns these operations for the interactive
+        screens; the LLM addresses items by name, so the only work here is
+        resolving a name to the controller's item id.
+        """
+        from src.engine.inventory import InventoryController
+
+        controller = InventoryController(self.game_state)
+        char_id = inputs["character_id"]
+        name = inputs["item_name"].strip().lower()
+
+        view = controller.view(char_id)
+        match = next((i for i in view.items if i.name.lower() == name), None)
+        if match is None:
+            match = next((i for i in view.items if name in i.name.lower()), None)
+        if match is None:
+            carried = ", ".join(i.name for i in view.items) or "nothing"
+            return {
+                "success": False,
+                "error": f"{view.character_name} is not carrying {inputs['item_name']!r}. "
+                         f"Carrying: {carried}.",
+            }
+
+        action = self._ITEM_ACTIONS[tool_name]
+        kwargs: dict = {}
+        if "quantity" in inputs:
+            kwargs["quantity"] = inputs["quantity"]
+        if tool_name == "give_item":
+            kwargs["to_id"] = inputs.get("to_id")
+            kwargs.setdefault("quantity", 1)
+
+        result = controller.apply(char_id, action, match.id, **kwargs)
+        if not result.success:
+            return {"success": False, "error": result.error or f"Could not {action} {match.name}."}
+        # ACTION_COSTS only gates the call; spending is explicit per branch.
+        if tool_name == "use_item" and self.game_state.combat.active:
+            self.game_state.combat.consume_action(char_id)
+        return {
+            "success": True,
+            "character": view.character_name,
+            "item": match.name,
+            "message": result.message,
+            **result.data,
+        }
+
+    def _advance_for_rest(self, kind: str, hours: int) -> dict:
+        """Advance the clock for a rest, once per party-wide rest.
+
+        The rest tools are per-character, so a two-PC party resting together
+        would otherwise burn 16 in-game hours for one long rest. A second call
+        at the same game time is treated as the same rest and does not advance
+        the clock again.
+        """
+        from src.engine.time_tracking import advance_time
+
+        t = self.game_state.world.time
+        stamp = (t.day, t.hour, t.minute)
+        if self._last_rest.get(kind) == stamp:
+            return {
+                "advanced": False,
+                "reason": "same rest as the previous character",
+                "time": t.formatted(),
+            }
+        result = advance_time(t, hours=hours, game_state=self.game_state)
+        self._last_rest[kind] = (t.day, t.hour, t.minute)
+        return {"advanced": True, "hours": hours, **result}
 
     def _char_name(self, cid: str) -> str:
         try:
@@ -963,7 +1161,7 @@ class ToolDispatcher:
                     logger.warning("Action economy rejected: %s — %s", tool_name, validation["reason"])
                     return {"success": False, "error": validation["reason"]}
 
-            result = self._route(tool_name, inputs)
+            result = _normalize_envelope(tool_name, self._route(tool_name, inputs))
             self.event_log.log(tool_name, inputs, result)
             return result
         except KeyError as e:
@@ -1074,7 +1272,7 @@ class ToolDispatcher:
                     advantage=inputs.get("advantage", False),
                     disadvantage=inputs.get("disadvantage", False),
                 )
-                return {"success": True, **result.model_dump()}
+                return _ok(**_check_payload(result))
 
             case "saving_throw":
                 char = gs.get_character(inputs["character_id"])
@@ -1087,7 +1285,7 @@ class ToolDispatcher:
                     advantage=inputs.get("advantage", False),
                     disadvantage=inputs.get("disadvantage", False),
                 )
-                return {"success": True, **result.model_dump()}
+                return _ok(**_check_payload(result))
 
             # --- Combat ---
             case "start_combat":
@@ -1231,7 +1429,61 @@ class ToolDispatcher:
                     gs.combat.consume_action(inputs["attacker_id"])
                 return result
 
+            case "take_action":
+                if not gs.combat.active:
+                    return {"success": False, "error": "No active combat."}
+                action = inputs["action"].strip().lower()
+                if action not in _TACTICAL_ACTIONS:
+                    return {
+                        "success": False,
+                        "error": f"Unknown action {inputs['action']!r}. Valid: "
+                                 + ", ".join(sorted(_TACTICAL_ACTIONS)),
+                    }
+                cid = inputs["character_id"]
+                char = gs.get_character(cid)
+                if not gs.combat.consume_action(cid):
+                    return {"success": False, "error": f"{char.name} has no action remaining."}
+
+                condition = _TACTICAL_ACTIONS[action]
+                result: dict = {"success": True, "character": char.name, "action": action}
+
+                if action == "dash":
+                    combatant = gs.combat.combatants[cid]
+                    combatant.movement_remaining += char.speed
+                    result["movement_remaining"] = combatant.movement_remaining
+                elif action == "help":
+                    target_id = inputs.get("target_id")
+                    if not target_id:
+                        return {"success": False, "error": "help requires target_id (the ally being helped)."}
+                    ally = gs.get_character(target_id)
+                    apply_condition(ally, condition, 2, combat_state=gs.combat)
+                    result["target"] = ally.name
+                    result["condition_applied"] = condition
+                elif condition:
+                    # 2 rounds, not 1: durations tick down at the end of the
+                    # affected character's own turn, so a 1-round dodge would
+                    # expire before any enemy could attack into it.
+                    apply_condition(char, condition, 2, combat_state=gs.combat)
+                    result["condition_applied"] = condition
+                    result["expires"] = "end of this character's next turn"
+
+                if inputs.get("note"):
+                    result["note"] = inputs["note"]
+                # E5: the action is spent, so the turn is over unless a bonus
+                # action or movement remains. Say so, or the LLM stalls here.
+                result["reminder"] = (
+                    "Action spent. Call end_turn() when this combatant is done."
+                )
+                return result
+
             case "opportunity_attack":
+                _target = gs.characters.get(inputs.get("target_id", ""))
+                if _target is not None and "disengaging" in _target.conditions:
+                    return {
+                        "success": False,
+                        "error": f"{_target.name} took the Disengage action — "
+                                 "their movement provokes no opportunity attacks this turn.",
+                    }
                 if not gs.combat.active:
                     return {"success": False, "error": "Opportunity attacks only happen in combat."}
                 attacker = gs.get_character(inputs["attacker_id"])
@@ -1335,7 +1587,10 @@ class ToolDispatcher:
                 return combat_engine.end_turn(gs)
 
             case "end_combat":
-                return combat_engine.end_combat(gs, inputs["xp_awarded"])
+                # Defaulted: the engine itself ends combat on a stalled fight,
+                # where there is no XP figure to invent, and an LLM omitting
+                # the field should not crash the turn.
+                return combat_engine.end_combat(gs, inputs.get("xp_awarded", 0) or 0)
 
             case "use_legendary_action":
                 from src.models.monster import Monster as _Monster
@@ -1385,13 +1640,19 @@ class ToolDispatcher:
                 if gs.combat.active:
                     return {"success": False, "error": "Cannot take a short rest during combat."}
                 char = gs.get_character(inputs["character_id"])
-                return rest_engine.short_rest(char, inputs["hit_dice_to_spend"])
+                result = rest_engine.short_rest(char, inputs["hit_dice_to_spend"])
+                if result.get("success", True):
+                    result["time"] = self._advance_for_rest("short", hours=1)
+                return result
 
             case "take_long_rest":
                 if gs.combat.active:
                     return {"success": False, "error": "Cannot take a long rest during combat."}
                 char = gs.get_character(inputs["character_id"])
-                return rest_engine.long_rest(char)
+                result = rest_engine.long_rest(char)
+                if result.get("success", True):
+                    result["time"] = self._advance_for_rest("long", hours=8)
+                return result
 
             case "add_item":
                 return gs.add_item(
@@ -1400,6 +1661,9 @@ class ToolDispatcher:
                     weight=inputs.get("weight", 0.0),
                     description=inputs.get("description", ""),
                 )
+
+            case "use_item" | "give_item" | "drop_item":
+                return self._item_action(tool_name, inputs)
 
             case "remove_item":
                 return gs.remove_item(inputs["character_id"], inputs["item_name"], inputs.get("quantity", 1))
@@ -1489,7 +1753,7 @@ class ToolDispatcher:
                 return _learn_spell(char, inputs["spell_name"], max_level)
 
             case "get_random_encounter":
-                import random as _random
+                from src.engine.dice import get_rng
                 loc_id = inputs.get("location_id", gs.world.current_location_id)
                 if gs.campaign is None:
                     return {"success": False, "error": "No campaign loaded."}
@@ -1499,7 +1763,7 @@ class ToolDispatcher:
                 random_encounters = [e for e in encounters if e.trigger == "random"]
                 if not random_encounters:
                     return {"success": False, "error": "No random encounters available."}
-                encounter = _random.choice(random_encounters)
+                encounter = get_rng().choice(random_encounters)
                 return {
                     "success": True,
                     "description": encounter.description,
@@ -1862,20 +2126,33 @@ class ToolDispatcher:
 
             # --- Economy ---
             case "buy_item":
-                from src.engine.economy import buy_item as _buy_item
+                from src.engine.economy import buy_item as _buy_item, resolve_price
                 char = gs.get_character(inputs["character_id"])
+                # A missing or zero price means "unspecified", not "free".
+                price, err = resolve_price(
+                    inputs["item_name"], inputs.get("price"),
+                    inputs.get("rarity", "common"),
+                )
+                if err:
+                    return {"success": False, "error": err}
                 return _buy_item(
-                    char, inputs["item_name"], inputs["price"],
+                    char, inputs["item_name"], price,
                     quantity=inputs.get("quantity", 1),
                     weight=inputs.get("weight", 0.0),
                     description=inputs.get("description", ""),
                 )
 
             case "sell_item":
-                from src.engine.economy import sell_item as _sell_item
+                from src.engine.economy import resolve_price, sell_item as _sell_item
                 char = gs.get_character(inputs["character_id"])
+                price, err = resolve_price(
+                    inputs["item_name"], inputs.get("price"),
+                    inputs.get("rarity", "common"),
+                )
+                if err:
+                    return {"success": False, "error": err}
                 return _sell_item(
-                    char, inputs["item_name"], inputs["price"],
+                    char, inputs["item_name"], price,
                     quantity=inputs.get("quantity", 1),
                 )
 

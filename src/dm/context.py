@@ -22,6 +22,10 @@ _COMPRESS_SYSTEM = """\
 Summarize the following D&D session events. Organize your summary by entity \
 so information is stored where it belongs. Omit raw dice rolls and mechanical details.
 
+Summarize narrative only. Never record HP totals, spell slot counts, gold amounts \
+or inventory contents — those are supplied to the DM fresh from the engine every \
+turn, and a number frozen into this summary would contradict them.
+
 Output format (follow exactly, omit empty sections):
 
 GLOBAL:
@@ -196,8 +200,8 @@ def _summarize_input(name: str, inp: dict) -> str:
 
 def _summarize_result(name: str, result: dict) -> str:
     """Compact representation of tool result."""
-    if not result.get("success", True):
-        return f"FAILED: {result.get('error', '?')}"
+    if result.get("success") is False:
+        return f"FAILED: {result.get('error') or 'no error message'}"
     if name in ("attack", "attack_roll"):
         hit = "hit" if result.get("hits") else "miss"
         dmg = result.get("damage")
@@ -219,9 +223,8 @@ def _summarize_result(name: str, result: dict) -> str:
             return f"healed {result['healing']}"
         return "ok"
     if name in ("ability_check", "saving_throw"):
-        total = result.get("total", "?")
-        success = "pass" if result.get("success") else "fail"
-        return f"{total} ({success})"
+        verdict = "pass" if result.get("passed") else "fail"
+        return f"{result.get('total', '?')} vs DC{result.get('dc', '?')} ({verdict})"
     if name == "roll_dice":
         return str(result.get("total", "?"))
     if name == "apply_damage":
@@ -248,6 +251,10 @@ class ContextManager:
         # cache tokens). More accurate than the char-count estimate; used as
         # an additional compression trigger.
         self.last_actual_prompt_tokens: int = 0
+        # Severe invariant violations from the last turn. Rendered into the
+        # next request's engine-state footer (ephemeral — never persisted to
+        # history), then cleared once the model has seen them.
+        self.pending_violations: list = []
 
     @property
     def full_history(self) -> list[dict]:
@@ -276,21 +283,23 @@ class ContextManager:
     def build_system_prompt_blocks(self) -> list[dict]:
         """System prompt as content blocks with Anthropic prompt-caching breakpoints.
 
-        Block 1 (cached): static rules + location context + quests.
+        Block 1 (cached): static rules + location + quests + party identity.
           Invalidated only when the party changes location or completes a quest.
-        Block 2 (uncached): character HP/slots/conditions + combat state + story summary.
-          Changes every turn — no point caching.
+        Block 2 (cached): journal / story summary. Changes only on compression.
+
+        Live mechanical state is NOT here — see `_engine_state_footer`.
         """
         stable = "\n\n".join(s for s in [
             DM_ROLE_AND_RULES,
             self._current_location_context(),
             self._active_quests_compact(),
+            self._party_roleplay_block(),
         ] if s)
 
-        dynamic_parts = [self._active_characters_compact()]
-        if self.game_state.combat.active:
-            dynamic_parts.append(self._combat_state_block())
-        # Journal context: NPC attitudes, world flags, location notes, global summary
+        # Mechanical state (HP, slots, combat) deliberately absent: it lives in
+        # the engine state footer at the end of the messages, where it is both
+        # more salient and impossible to contradict with a stale copy.
+        dynamic_parts: list[str] = []
         journal_block = self._journal_context()
         if journal_block:
             dynamic_parts.append(journal_block)
@@ -303,8 +312,24 @@ class ContextManager:
             {"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}},
         ]
         if dynamic:
-            blocks.append({"type": "text", "text": dynamic})
+            # Changes only when compression runs, so it is worth caching now
+            # that per-turn numbers have moved out of it.
+            blocks.append({
+                "type": "text", "text": dynamic,
+                "cache_control": {"type": "ephemeral"},
+            })
         return blocks
+
+    def resync_from_state(self) -> None:
+        """Re-derive cached values after game state is restored under us.
+
+        `full_history` is a property over GameState so it rewinds for free, but
+        `story_summary` is a separate copy, and a stale prompt-token reading
+        would re-trigger compression immediately.
+        """
+        self.story_summary = self.game_state.journal.conversation_summary
+        self.last_actual_prompt_tokens = 0
+        self.pending_violations = []
 
     def add_message(self, message: dict) -> None:
         self.full_history.append(message)
@@ -320,6 +345,41 @@ class ContextManager:
         return msg.get("role") == "user" and isinstance(msg.get("content"), str)
 
     def get_messages_for_api(self, backend: "LLMBackend | None" = None) -> list[dict]:
+        """History for the outgoing request, with the engine state footer.
+
+        The footer is attached to a *copy* — `full_history` (and therefore the
+        save file, and the compression prompt) never sees it. Stale mechanical
+        numbers accumulating in history is exactly the failure this exists to
+        prevent, so it must not create that failure itself.
+        """
+        return self._with_state_footer(self._trimmed_history(backend))
+
+    def _with_state_footer(self, msgs: list[dict]) -> list[dict]:
+        """Append the engine state block to the last message, non-destructively."""
+        footer = self._engine_state_footer()
+        if not footer or not msgs:
+            return msgs
+
+        out = list(msgs)                      # shallow copy of the list
+        last = dict(out[-1])                  # and of the message we touch
+        content = last.get("content")
+
+        if last.get("role") == "user" and isinstance(content, str):
+            # Iteration 0: the player's own turn. Merge into the string so the
+            # message stays a legal compression/trim boundary.
+            last["content"] = f"{content}\n\n{footer}"
+        elif last.get("role") == "user" and isinstance(content, list):
+            # Iterations 1..N: tool results. A separate user message here would
+            # create two consecutive user turns, which the API rejects.
+            last["content"] = [*content, {"type": "text", "text": footer}]
+        else:
+            out.append({"role": "user", "content": footer})
+            return out
+
+        out[-1] = last
+        return out
+
+    def _trimmed_history(self, backend: "LLMBackend | None" = None) -> list[dict]:
         """Return history trimmed to fit token budget.
 
         Performs a hard safety check: estimates total payload (system prompt +
@@ -646,32 +706,127 @@ class ContextManager:
 
         return "\n\n".join(parts)
 
+    # --- Engine state footer --------------------------------------------------
+
+    _FOOTER_ITEM_CAP = 12
+
+    def _engine_state_footer(self) -> str:
+        """Ground-truth mechanical state, regenerated for every request.
+
+        This rides at the end of the message list rather than in the system
+        prompt: it is the position the model attends to most strongly, and
+        unlike history it cannot drift, because it is rebuilt from GameState
+        every time.
+        """
+        gs = self.game_state
+        lines = ["<engine_state>"]
+
+        lines.append(f"Time: {gs.world.time.formatted()}")
+        loc_id = gs.world.current_location_id
+        loc = gs.world.locations.get(loc_id)
+        # The id is what set_location/travel_to_location take as an argument,
+        # and it is routinely hallucinated when only the prose name is visible.
+        lines.append(f"Location: {loc_id}" + (f" ({loc.name})" if loc else ""))
+
+        lines.append("Party:")
+        for char in gs.player_characters:
+            lines.extend(self._footer_character_lines(char))
+
+        if gs.combat.active:
+            lines.append(self._combat_state_block())
+
+        lines.extend(self._footer_violation_lines())
+
+        lines.append(
+            "This block is regenerated by the engine for every request. It "
+            "supersedes any number stated earlier in this conversation."
+        )
+        lines.append("</engine_state>")
+        return "\n".join(lines)
+
+    def _footer_character_lines(self, char) -> list[str]:
+        status = [f"{char.hp}/{char.max_hp} HP"]
+        if char.temp_hp:
+            status.append(f"+{char.temp_hp} temp")
+        status.append(f"AC {char.ac}")
+        if char.conditions:
+            status.append(f"conditions: {', '.join(char.conditions)}")
+        if char.concentration:
+            status.append(f"concentrating: {char.concentration}")
+        if char.spell_slots:
+            slots = " ".join(
+                f"L{lvl}:{n}/{char.max_spell_slots.get(lvl, n)}"
+                for lvl, n in sorted(char.spell_slots.items())
+            )
+            status.append(f"slots {slots}")
+
+        lines = [f"- {char.name} [{char.id}] " + " | ".join(status)]
+
+        # Holdings come from the inventory controller rather than re-reading
+        # weapons/armor/shield: equipped-ness is derived there, and deriving it
+        # twice is how two views of the same character drift apart.
+        try:
+            from src.engine.inventory import InventoryController
+            view = InventoryController(self.game_state).view(char.id)
+        except Exception:  # noqa: BLE001 — the footer must never break a turn
+            logger.debug("Inventory view unavailable for %s", char.id, exc_info=True)
+            return lines
+
+        lines.append(
+            f"  {view.gold} gp | {view.carry_weight}/{view.capacity} lb "
+            f"({view.encumbrance_tier}) | attuned {view.attunement_used}/{view.attunement_max}"
+        )
+        entries = []
+        for item in view.items[: self._FOOTER_ITEM_CAP]:
+            label = item.name
+            if item.quantity > 1:
+                label += f" x{item.quantity}"
+            if item.equipped:
+                label += " (eq)"
+            entries.append(label)
+        overflow = len(view.items) - self._FOOTER_ITEM_CAP
+        if overflow > 0:
+            entries.append(f"...and {overflow} more")
+        if entries:
+            lines.append(f"  carrying: {', '.join(entries)}")
+        return lines
+
+    def _footer_violation_lines(self) -> list[str]:
+        """Surface severe state-linter findings from the previous turn.
+
+        This is the feedback channel for the invariant checker: ephemeral,
+        adjacent to the ground truth it contradicts, and cleared once read —
+        so a repaired state stops being mentioned on the next turn.
+        """
+        if not self.pending_violations:
+            return []
+        lines = ["ENGINE CORRECTION — the state below was found inconsistent and may have been repaired:"]
+        for v in self.pending_violations:
+            hint = f" {v.fix_hint}" if getattr(v, "fix_hint", "") else ""
+            lines.append(f"  - {v.subject}: {v.detail}.{hint}")
+        lines.append("  Do not narrate around these numbers; trust the values above.")
+        self.pending_violations = []
+        return lines
+
     def _current_location_context(self) -> str:
         loc_id = self.game_state.world.current_location_id
         return self.campaign.get_location_context(loc_id, token_budget=1500)
 
-    def _active_characters_compact(self) -> str:
+    def _party_roleplay_block(self) -> str:
+        """Who the party *is* — identity and personality, no live numbers.
+
+        Deliberately static: HP, slots, gold and conditions live in the engine
+        state footer instead, so this block can sit in the cached half of the
+        system prompt and stop churning the cache every turn.
+        """
         lines = ["## Active Characters"]
         for char in self.game_state.player_characters:
-            status = f"{char.hp}/{char.max_hp} HP"
-            if char.conditions:
-                status += f" [{', '.join(char.conditions)}]"
-            if char.concentration:
-                status += f" (concentrating: {char.concentration})"
-            slots = ""
-            if char.spell_slots:
-                slot_str = " ".join(
-                    f"L{k}:{v}/{char.max_spell_slots.get(k, v)}"
-                    for k, v in sorted(char.spell_slots.items())
-                )
-                slots = f" | Slots: {slot_str}"
             header = f"{char.race} {char.class_name} {char.level}"
             if char.background:
                 header += f", {char.background}"
             if char.alignment:
                 header += f", {char.alignment}"
-            lines.append(f"- **{char.name}** ({header}) — {status}{slots}")
-            # Personality context for roleplay guidance
+            lines.append(f"- **{char.name}** [{char.id}] ({header})")
             personality_parts = []
             if char.personality_traits:
                 personality_parts.append(f"Traits: {char.personality_traits}")
@@ -683,6 +838,10 @@ class ContextManager:
                 personality_parts.append(f"Flaws: {char.flaws}")
             if personality_parts:
                 lines.append(f"  *{'; '.join(personality_parts)}*")
+        lines.append(
+            "Current HP, conditions, spell slots, gold and inventory are in the "
+            "<engine_state> block at the end of the conversation."
+        )
         return "\n".join(lines)
 
     def _active_quests_compact(self) -> str:

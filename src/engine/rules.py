@@ -60,6 +60,29 @@ CONDITION_EFFECTS: dict[str, dict] = {
         "attack_disadvantage": True,
         "attacked_advantage": True,  # melee within 5 ft; ranged gets disadv (simplified)
     },
+    # --- Tactical actions (see tools.take_action) ---
+    "dodging": {
+        # Attacks against a dodging creature have disadvantage; it has
+        # advantage on DEX saves.
+        "attacked_disadvantage": True,
+        "saving_throw_advantage": ["DEX"],
+    },
+    "disengaging": {
+        # Purely a movement effect: no opportunity attacks this turn. Enforced
+        # in the opportunity_attack tool, not by adv/disadv flags.
+    },
+    "hidden": {
+        "attack_advantage": True,
+        "attacked_disadvantage": True,
+    },
+    "helped": {
+        # The Help action grants advantage on the helped creature's next check
+        # or attack.
+        "attack_advantage": True,
+    },
+    "readied": {
+        # Narrative marker; the readied trigger is adjudicated by the DM.
+    },
     "restrained": {
         "speed_zero": True,
         "attack_disadvantage": True,

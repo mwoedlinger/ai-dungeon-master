@@ -71,13 +71,21 @@ class DeepSeekBackend(LLMBackend):
             tools=self._convert_tools(tools),  # type: ignore[arg-type]
             max_tokens=max_tokens,
             stream=True,
+            stream_options={"include_usage": True},
         )
 
+        usage = TokenUsage()
         text_parts: list[str] = []
         # Tool call deltas arrive indexed; accumulate per-index.
         tc_accum: dict[int, dict] = {}  # idx -> {id, name, arguments}
 
         for chunk in stream:
+            # The usage-bearing chunk arrives last and carries no choices.
+            chunk_usage = getattr(chunk, "usage", None)
+            if chunk_usage:
+                usage.input_tokens = getattr(chunk_usage, "prompt_tokens", 0) or 0
+                usage.output_tokens = getattr(chunk_usage, "completion_tokens", 0) or 0
+
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta is None:
                 continue
@@ -130,6 +138,7 @@ class DeepSeekBackend(LLMBackend):
             text=text,
             tool_calls=tool_calls,
             raw_assistant_message=raw_assistant_message,
+            usage=usage,
         )
 
     def compress(
@@ -197,9 +206,9 @@ class DeepSeekBackend(LLMBackend):
                                     "arguments": json.dumps(block["input"]),
                                 },
                             })
-                    msg_dict: dict = {"role": "assistant"}
-                    if text:
-                        msg_dict["content"] = text
+                    # `content` must always be present, even when empty: a
+                    # tool-only assistant turn with no content key is rejected.
+                    msg_dict: dict = {"role": "assistant", "content": text or ""}
                     if tool_calls:
                         msg_dict["tool_calls"] = tool_calls
                     wire.append(msg_dict)

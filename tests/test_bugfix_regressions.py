@@ -146,8 +146,8 @@ class TestInitiativeDeterminism:
             for i, name in enumerate(["Zed", "Anna", "Mira"])
         }
         gs = _FakeGSCombat(chars)
-        import random
-        random.seed(42)
+        from src.engine.dice import seed as _seed_engine
+        _seed_engine(42)
         start_combat(gs, list(chars.keys()))
         # With identical DEX, equal initiative rolls must order by name
         order = gs.combat.turn_order

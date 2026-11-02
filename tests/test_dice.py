@@ -1,5 +1,7 @@
 """Tests for the dice engine."""
 import pytest
+
+from src.engine import dice
 from src.engine.dice import roll_dice
 
 
@@ -116,3 +118,49 @@ def test_crit_detection_via_kept_roll():
         assert r.kept_roll is not None
         if r.kept_roll == 20:
             assert r.individual_rolls[0] == 20 or r.individual_rolls[1] == 20
+
+
+class TestSeededRng:
+    """The engine owns its generator, so sessions can be replayed."""
+
+    def test_seed_reproduces_sequence(self):
+        dice.seed(1234)
+        first = [dice.roll_dice("3d6").total for _ in range(10)]
+        dice.seed(1234)
+        assert [dice.roll_dice("3d6").total for _ in range(10)] == first
+
+    def test_seeded_advantage_reproducible(self):
+        dice.seed(99)
+        first = [dice.roll_dice("1d20", advantage=True).individual_rolls for _ in range(5)]
+        dice.seed(99)
+        assert [dice.roll_dice("1d20", advantage=True).individual_rolls for _ in range(5)] == first
+
+    def test_seeded_keep_highest_reproducible(self):
+        dice.seed(7)
+        first = [dice.roll_dice("4d6kh3").individual_rolls for _ in range(5)]
+        dice.seed(7)
+        assert [dice.roll_dice("4d6kh3").individual_rolls for _ in range(5)] == first
+
+    def test_set_rng_isolates_streams(self):
+        import random
+        dice.set_rng(random.Random(5))
+        a = [dice.roll_dice("1d20").total for _ in range(5)]
+        dice.set_rng(random.Random(5))
+        b = [dice.roll_dice("1d20").total for _ in range(5)]
+        assert a == b
+
+    def test_stdlib_global_does_not_affect_engine(self):
+        """Seeding stdlib `random` must not change engine rolls."""
+        import random
+        dice.seed(42)
+        expected = [dice.roll_dice("1d20").total for _ in range(5)]
+        dice.seed(42)
+        random.seed(0)  # unrelated consumer reseeding the global
+        assert [dice.roll_dice("1d20").total for _ in range(5)] == expected
+
+    def test_dice_module_uses_no_bare_module_random(self):
+        """Guard against a future roll slipping back onto the stdlib global."""
+        from pathlib import Path
+        src = Path("src/engine/dice.py").read_text()
+        assert "random.randint(" not in src
+        assert "_rng.randint(" in src

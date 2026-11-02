@@ -17,12 +17,26 @@
       },
       "hp": 28,
       "max_hp": 28,
-      "ac": 16,
+      "ac": 18,
       "proficiency_bonus": 2,
-      "skill_proficiencies": ["Athletics", "Perception"],
-      "weapon_proficiencies": ["martial", "simple"],
-      "armor_proficiencies": ["light", "medium", "heavy", "shields"],
-      "saving_throw_proficiencies": ["STR", "CON"],
+      "skill_proficiencies": [
+        "Athletics",
+        "Perception"
+      ],
+      "weapon_proficiencies": [
+        "martial",
+        "simple"
+      ],
+      "armor_proficiencies": [
+        "light",
+        "medium",
+        "heavy",
+        "shields"
+      ],
+      "saving_throw_proficiencies": [
+        "STR",
+        "CON"
+      ],
       "hit_dice_remaining": 3,
       "hit_die_type": "d10",
       "weapons": [
@@ -30,6 +44,15 @@
           "name": "Longsword",
           "damage_dice": "1d8",
           "damage_type": "slashing"
+        },
+        {
+          "name": "Crossbow, light",
+          "damage_dice": "1d8",
+          "damage_type": "piercing",
+          "properties": [
+            "ranged",
+            "two-handed"
+          ]
         }
       ],
       "armor": {
@@ -37,7 +60,71 @@
         "base_ac": 16,
         "armor_type": "heavy"
       },
-      "is_player": true
+      "is_player": true,
+      "gold": 75,
+      "inventory": [
+        {
+          "name": "Bolts (20)",
+          "quantity": 2,
+          "weight": 1.5
+        },
+        {
+          "name": "Backpack",
+          "quantity": 1,
+          "weight": 5.0
+        },
+        {
+          "name": "Bedroll",
+          "quantity": 1,
+          "weight": 7.0
+        },
+        {
+          "name": "Rations",
+          "quantity": 10,
+          "weight": 2.0
+        },
+        {
+          "name": "Waterskin",
+          "quantity": 1,
+          "weight": 5.0
+        },
+        {
+          "name": "Rope, hempen",
+          "quantity": 1,
+          "weight": 10.0,
+          "description": "50 feet."
+        },
+        {
+          "name": "Torch",
+          "quantity": 10,
+          "weight": 1.0
+        },
+        {
+          "name": "Tinderbox",
+          "quantity": 1,
+          "weight": 1.0
+        },
+        {
+          "name": "Crowbar",
+          "quantity": 1,
+          "weight": 5.0
+        },
+        {
+          "name": "Piton",
+          "quantity": 10,
+          "weight": 0.25
+        },
+        {
+          "name": "Potion of healing",
+          "quantity": 2,
+          "weight": 0.5,
+          "description": "Restores 2d4+2 HP.",
+          "properties": {
+            "heal": "2d4+2"
+          }
+        }
+      ],
+      "shield": true
     },
     {
       "id": "zara",
@@ -56,19 +143,121 @@
       },
       "hp": 19,
       "max_hp": 19,
-      "ac": 13,
+      "ac": 12,
       "proficiency_bonus": 2,
-      "skill_proficiencies": ["Arcana", "History", "Investigation"],
-      "weapon_proficiencies": ["simple"],
-      "armor_proficiencies": ["light"],
-      "saving_throw_proficiencies": ["INT", "WIS"],
-      "spell_slots": {"1": 4, "2": 2},
-      "max_spell_slots": {"1": 4, "2": 2},
+      "skill_proficiencies": [
+        "Arcana",
+        "History",
+        "Investigation"
+      ],
+      "weapon_proficiencies": [
+        "simple"
+      ],
+      "armor_proficiencies": [
+        "light"
+      ],
+      "saving_throw_proficiencies": [
+        "INT",
+        "WIS"
+      ],
+      "spell_slots": {
+        "1": 4,
+        "2": 2
+      },
+      "max_spell_slots": {
+        "1": 4,
+        "2": 2
+      },
       "spellcasting_ability": "INT",
-      "known_spells": ["Fire Bolt", "Magic Missile", "Fireball", "Shield", "Mage Armor"],
+      "known_spells": [
+        "Fire Bolt",
+        "Magic Missile",
+        "Fireball",
+        "Shield",
+        "Mage Armor"
+      ],
       "hit_dice_remaining": 3,
       "hit_die_type": "d6",
-      "is_player": true
+      "is_player": true,
+      "gold": 40,
+      "inventory": [
+        {
+          "name": "Spellbook",
+          "quantity": 1,
+          "weight": 3.0,
+          "description": "Zara's arcane research and prepared spells."
+        },
+        {
+          "name": "Component pouch",
+          "quantity": 1,
+          "weight": 2.0
+        },
+        {
+          "name": "Arcane focus",
+          "quantity": 1,
+          "weight": 1.0,
+          "description": "A moonstone-tipped wand."
+        },
+        {
+          "name": "Backpack",
+          "quantity": 1,
+          "weight": 5.0
+        },
+        {
+          "name": "Bedroll",
+          "quantity": 1,
+          "weight": 7.0
+        },
+        {
+          "name": "Rations",
+          "quantity": 8,
+          "weight": 2.0
+        },
+        {
+          "name": "Waterskin",
+          "quantity": 1,
+          "weight": 5.0
+        },
+        {
+          "name": "Torch",
+          "quantity": 5,
+          "weight": 1.0
+        },
+        {
+          "name": "Tinderbox",
+          "quantity": 1,
+          "weight": 1.0
+        },
+        {
+          "name": "Potion of healing",
+          "quantity": 1,
+          "weight": 0.5,
+          "description": "Restores 2d4+2 HP.",
+          "properties": {
+            "heal": "2d4+2"
+          }
+        }
+      ],
+      "weapons": [
+        {
+          "name": "Quarterstaff",
+          "damage_dice": "1d6",
+          "damage_type": "bludgeoning",
+          "properties": [
+            "versatile"
+          ]
+        },
+        {
+          "name": "Dagger",
+          "damage_dice": "1d4",
+          "damage_type": "piercing",
+          "properties": [
+            "finesse",
+            "light",
+            "thrown"
+          ]
+        }
+      ]
     }
   ]
 }

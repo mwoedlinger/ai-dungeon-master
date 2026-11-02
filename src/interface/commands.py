@@ -442,6 +442,18 @@ def _show_character_sheet(char_id: str, ctx: CommandContext) -> None:
     console.print(Panel(build_character_sheet(char), border_style="cyan", padding=(1, 2)))
 
 
+def _cmd_retcon(args: str, ctx: CommandContext) -> None:
+    """Undo the last turn — rewinds game state and the conversation."""
+    stack = getattr(ctx.dm, "snapshots", None)
+    if not stack or not len(stack):
+        console.print("[dim]Nothing to undo — no turn has been taken yet.[/dim]")
+        return
+    label = stack.pop_and_restore()
+    ctx.dm.context_manager.resync_from_state()
+    console.print(f"[yellow]Retconned. \"{label}\" never happened.[/yellow]")
+    console.print("[dim]The DM has no memory of that turn.[/dim]")
+
+
 # ---------------------------------------------------------------------------
 # Command registry
 # ---------------------------------------------------------------------------
@@ -464,6 +476,8 @@ COMMANDS: dict[str, tuple] = {
     "summary":   (_cmd_summary,   "Story summary (overall arc + recent events)"),
     "compendium": (_cmd_compendium, "Search the SRD (monsters, spells, items, etc.)"),
     "c":         (_cmd_compendium, "Search SRD (alias for /compendium)"),
+    "retcon":    (_cmd_retcon,    "Undo the last turn"),
+    "undo":      (_cmd_retcon,    "Undo the last turn (alias)"),
 }
 
 

@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from src.engine.invariants import check_invariants
+
 if TYPE_CHECKING:
     from src.engine.game_state import GameState
 
@@ -168,55 +170,10 @@ def _brief_snapshot(snap: dict) -> str:
 
 
 def validate_state(gs: "GameState") -> list[str]:
-    """Return list of state inconsistency descriptions."""
-    issues: list[str] = []
+    """Return state inconsistencies as human-readable strings.
 
-    for cid, char in gs.characters.items():
-        # HP range
-        if char.hp < 0:
-            issues.append(f"{char.name} ({cid}) has negative HP: {char.hp}")
-        if char.hp > char.max_hp + char.temp_hp:
-            issues.append(f"{char.name} ({cid}) HP {char.hp} exceeds max {char.max_hp} + temp {char.temp_hp}")
-
-        # Spell slots non-negative
-        for level, slots in char.spell_slots.items():
-            if slots < 0:
-                issues.append(f"{char.name} ({cid}) has negative spell slots at level {level}: {slots}")
-            max_slots = char.max_spell_slots.get(level, 0)
-            if slots > max_slots:
-                issues.append(f"{char.name} ({cid}) spell slots level {level}: {slots} > max {max_slots}")
-
-        # Death saves range
-        if char.death_saves.successes < 0 or char.death_saves.successes > 3:
-            issues.append(f"{char.name} ({cid}) death save successes out of range: {char.death_saves.successes}")
-        if char.death_saves.failures < 0 or char.death_saves.failures > 3:
-            issues.append(f"{char.name} ({cid}) death save failures out of range: {char.death_saves.failures}")
-
-        # Dead monsters legitimately stay in turn_order (end_turn skips them;
-        # removing mid-round would corrupt current_turn_index) — but the
-        # CURRENT combatant being a dead monster means the skip logic failed.
-        if char.hp <= 0 and not char.is_player and gs.combat.active:
-            if gs.combat.current_combatant_id == cid:
-                issues.append(f"Dead monster {char.name} ({cid}) is the current combatant")
-
-    # Combat state consistency
-    if gs.combat.active:
-        for cid in gs.combat.turn_order:
-            if cid not in gs.characters and cid not in gs.combat.combatants:
-                issues.append(f"Turn order references unknown character: {cid}")
-        if gs.combat.current_turn_index >= len(gs.combat.turn_order) and gs.combat.turn_order:
-            issues.append(
-                f"Current turn index {gs.combat.current_turn_index} "
-                f"out of bounds for turn order (len={len(gs.combat.turn_order)})"
-            )
-        # Duplicate initiative entries
-        if len(gs.combat.turn_order) != len(set(gs.combat.turn_order)):
-            seen = set()
-            dupes = [x for x in gs.combat.turn_order if x in seen or seen.add(x)]  # type: ignore[func-returns-value]
-            issues.append(f"Duplicate entries in turn order: {dupes}")
-
-    # Current location exists
-    if gs.world.current_location_id not in gs.world.locations:
-        issues.append(f"Current location '{gs.world.current_location_id}' not in world locations")
-
-    return issues
+    Delegates to the engine's state linter so the debug agent and the live
+    session enforce exactly one set of invariants. (The previous local copy
+    also flagged 4 death-save failures, which a natural 1 makes legal.)
+    """
+    return [f"{v.detail} [{v.code}]" for v in check_invariants(gs)]

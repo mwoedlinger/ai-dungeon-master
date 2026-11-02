@@ -6,16 +6,33 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import Enum
 
 from src.campaign.campaign_db import CampaignData
 from src.dm.backends import create_backend
-from src.dm.backends.base import TokenUsage
+from src.dm.backends.base import LLMBackend, TokenUsage
 from src.dm.context import ContextManager
 from src.dm.tools import ToolDispatcher, get_tool_schemas
 from src.engine.game_state import GameState
+from src.engine.invariants import SEVERE_CODES, Violation, check_invariants
+from src.engine.snapshot import SnapshotStack
 from src.log.event_log import EventLog
 
 logger = logging.getLogger(__name__)
+
+class InvariantPolicy(str, Enum):
+    """What to do when the post-turn state linter finds a violation."""
+    LOG = "log"      # live sessions: never crash a game on a linter finding
+    RAISE = "raise"  # tests and the debug harness: fail loudly
+
+
+class InvariantViolation(RuntimeError):
+    """Raised under InvariantPolicy.RAISE when state is incoherent."""
+
+    def __init__(self, violations: list[Violation]):
+        self.violations = violations
+        super().__init__("; ".join(str(v) for v in violations))
+
 
 # Hard cap on tool-call iterations to prevent infinite loops
 MAX_TOOL_ITERATIONS = 15
@@ -152,8 +169,12 @@ class DungeonMaster:
         model: str | None = None,
         save_path: str = "saves/autosave.json",
         debug: bool = False,
+        backend: "LLMBackend | None" = None,
+        invariant_policy: InvariantPolicy = InvariantPolicy.LOG,
     ):
-        self.backend = create_backend(provider, model)
+        # An injected backend is used as-is (tests, offline replay); otherwise
+        # build the real client from provider/model.
+        self.backend = backend or create_backend(provider, model)
         self.game_state = game_state
         self.event_log = event_log
         self.context_manager = ContextManager(campaign, game_state)
@@ -162,6 +183,11 @@ class DungeonMaster:
             backend=self.backend, campaign=campaign,
         )
         self.debug = debug
+        self.invariant_policy = invariant_policy
+        # Undo stack for /retcon. Pushed by the front ends before a
+        # player-initiated turn, never inside process_player_input (which also
+        # serves opening scenes and monster turns).
+        self.snapshots = SnapshotStack(game_state)
         self.token_stats = SessionTokenStats(
             provider=provider, model=getattr(self.backend, "model", "") or "",
         )
@@ -256,9 +282,7 @@ class DungeonMaster:
 
             if not result.tool_calls:
                 self.context_manager.add_message(result.raw_assistant_message)
-                self.context_manager.compact_tool_pairs()
-                self.context_manager.compress_if_needed(self.backend)
-                return "\n\n".join(all_text_parts) or "[The DM pauses thoughtfully...]"
+                return self._finish_turn(all_text_parts, "[The DM pauses thoughtfully...]")
 
             # Tool-call turn — text was already streamed to the player
             logger.debug("Intermediate narrative (iter %d): %s", iteration, (result.text or "")[:200])
@@ -293,9 +317,54 @@ class DungeonMaster:
         # two consecutive user turns (which the API rejects).
         fallback = "[The DM gathers their thoughts after a flurry of actions and prepares to continue...]"
         self.context_manager.add_message({"role": "assistant", "content": fallback})
+        return self._finish_turn(all_text_parts, fallback)
+
+    def _finish_turn(self, all_text_parts: list[str], fallback: str) -> str:
+        """Close out a turn: compact, compress, then lint the resulting state."""
         self.context_manager.compact_tool_pairs()
         self.context_manager.compress_if_needed(self.backend)
+        self._run_invariant_check()
         return "\n\n".join(all_text_parts) or fallback
+
+    def _run_invariant_check(self) -> list[Violation]:
+        """Lint game state once per turn.
+
+        Deliberately not per-dispatch: state is legitimately inconsistent
+        between paired calls (attack -> apply_damage -> apply_condition), so a
+        per-call check would false-positive on nearly every damaging turn.
+        """
+        violations = check_invariants(self.game_state)
+        if not violations:
+            return []
+
+        for v in violations:
+            logger.warning("INVARIANT %s [%s] %s", v.code, v.subject, v.detail)
+
+        report = {
+            "success": False,
+            "violations": [
+                {"code": v.code, "severity": v.severity, "subject": v.subject,
+                 "detail": v.detail, "fix_hint": v.fix_hint}
+                for v in violations
+            ],
+            "error": f"{len(violations)} invariant violation(s): "
+                     + ", ".join(sorted({v.code for v in violations})),
+        }
+        # Routing through the event log puts violations in logs/*.jsonl and in
+        # front of the debug agent's report with no extra plumbing.
+        self.event_log.log("_invariant_check", {}, report)
+
+        severe = [v for v in violations if v.code in SEVERE_CODES]
+        if severe:
+            # Surfaced to the model via the next request's engine-state footer,
+            # not as a synthetic history message.
+            self.context_manager.pending_violations = severe
+
+        if self.invariant_policy is InvariantPolicy.RAISE:
+            errors = [v for v in violations if v.severity == "error"]
+            if errors:
+                raise InvariantViolation(errors)
+        return violations
 
     def _log_llm_request(self, api_kwargs: dict, iteration: int) -> None:
         """Log the full LLM request payload for post-session debugging."""

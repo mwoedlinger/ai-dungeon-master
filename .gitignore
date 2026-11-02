@@ -220,3 +220,6 @@ ui/dist/
 .ignore
 # macOS
 .DS_Store
+
+.pytest_cache
+.vscode/

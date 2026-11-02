@@ -34,6 +34,17 @@ class GameSession:
     save_path: str = "saves/autosave.json"
     mode: str = "exploration"
     _opening_done: bool = field(default=False, repr=False)
+    _turn_driver: object = field(default=None, repr=False)
+
+    @property
+    def turn_driver(self):
+        """Shared combat turn driver (lazy — needs the dispatcher)."""
+        if self._turn_driver is None:
+            from src.engine.turn_driver import CombatTurnDriver
+            self._turn_driver = CombatTurnDriver(
+                self.game_state, self.dm.tool_dispatcher,
+            )
+        return self._turn_driver
 
     def snapshot(self) -> GameStateSnapshot:
         """Build a full state snapshot for the frontend."""
@@ -161,42 +172,72 @@ class GameSession:
 
 
 async def _process_combat_turns(session: GameSession, ws: WebSocket) -> None:
-    """After a player turn resolves, auto-process monster turns and skip dead."""
-    from src.engine.combat import end_turn
+    """Advance combat until a player must act, using the shared turn driver.
 
+    Previously this reimplemented the turn sequence and skipped every combatant
+    at 0 HP — including player characters, who therefore never rolled death
+    saves and could neither die nor stabilize, leaving the fight unwinnable.
+    """
+    from src.engine.turn_driver import (
+        AutoSkipped, AwaitPlayerInput, CombatEnded, DeathSaveResolved,
+        MonsterTurn, TurnLimitReached,
+    )
+
+    driver = session.turn_driver
     combat = session.game_state.combat
-    while combat.active:
-        cid = combat.current_combatant_id
-        try:
-            char = session.game_state.get_character(cid)
-        except KeyError:
-            end_turn(session.game_state)
-            continue
 
-        # Skip dead combatants
-        if char.hp <= 0 or "dead" in char.conditions:
-            end_turn(session.game_state)
-            continue
+    while True:
+        outcome = driver.next_turn()
 
-        # Send turn prompt
-        await ws.send_json({
-            "type": "turn_prompt",
-            "character_id": cid,
-            "character_name": char.name,
-            "is_player": char.is_player,
-        })
-
-        if char.is_player:
-            # Player's turn — wait for input
+        if isinstance(outcome, CombatEnded):
             break
 
-        # Monster turn — auto-process
-        await session.handle_player_input(
-            f"[DM: It is {char.name}'s turn. "
-            f"Call get_monster_actions('{cid}') first, "
-            f"then resolve their actions, then call end_turn().]",
-            ws,
-        )
+        if isinstance(outcome, TurnLimitReached):
+            logger.error("Combat stalled after %d auto-advanced turns", outcome.turns)
+            await ws.send_json({
+                "type": "notice",
+                "level": "error",
+                "message": "Combat stalled and was ended by the engine.",
+            })
+            session.dm.tool_dispatcher.dispatch("end_combat", {"xp_awarded": 0})
+            break
+
+        if isinstance(outcome, AutoSkipped):
+            continue
+
+        if isinstance(outcome, DeathSaveResolved):
+            await ws.send_json({
+                "type": "death_save",
+                "character_id": outcome.character_id,
+                "character_name": outcome.character_name,
+                "kind": outcome.kind,
+                "message": outcome.message,
+                "result": outcome.result,
+            })
+            await ws.send_json({
+                "type": "state_update",
+                "payload": session.snapshot().model_dump(),
+            })
+            continue
+
+        if isinstance(outcome, AwaitPlayerInput):
+            await ws.send_json({
+                "type": "turn_prompt",
+                "character_id": outcome.character_id,
+                "character_name": outcome.character_name,
+                "is_player": True,
+            })
+            break
+
+        assert isinstance(outcome, MonsterTurn)
+        await ws.send_json({
+            "type": "turn_prompt",
+            "character_id": outcome.character_id,
+            "character_name": outcome.character_name,
+            "is_player": False,
+        })
+        await session.handle_player_input(outcome.prompt, ws)
+        driver.finish_monster_turn(outcome.character_id)
 
     # If combat just ended
     if not combat.active and session.mode == "combat":
@@ -239,7 +280,10 @@ async def websocket_handler(ws: WebSocket) -> None:
                 if not text:
                     continue
 
-                # In combat, prefix with character name
+                # In combat, prefix with character name and restrict the
+                # render to that combatant's turn — without the scope the LLM
+                # can end other combatants' turns and fast-forward whole rounds.
+                turn_scope = ""
                 if session.mode == "combat" and session.game_state.combat.active:
                     combat = session.game_state.combat
                     try:
@@ -248,10 +292,16 @@ async def websocket_handler(ws: WebSocket) -> None:
                         )
                         if current_char.is_player:
                             text = f"[{current_char.name}]: {text}"
+                            turn_scope = combat.current_combatant_id
                     except KeyError:
                         pass
+                    session.dm.tool_dispatcher.set_turn_scope(turn_scope)
 
+                session.dm.snapshots.push(text[:60])
                 await session.handle_player_input(text, ws)
+
+                if turn_scope:
+                    session.turn_driver.finish_player_turn(turn_scope)
 
                 # Auto-process combat turns (monsters, dead combatants)
                 if session.game_state.combat.active:

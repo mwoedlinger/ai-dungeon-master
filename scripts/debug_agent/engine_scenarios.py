@@ -132,10 +132,9 @@ def _guard_fuzz(ctx: EngineCtx) -> None:
                                "dc": 10}, expect=False, note="invalid ability")
     ctx.call("saving_throw", {"character_id": "aldric", "ability": "SWAG",
                               "dc": 10}, expect=False, note="invalid ability")
-    # Note: for checks, "success" is the check outcome (vs DC), not tool-ok —
-    # so only assert the roll resolved, not that it passed.
+    # The envelope now means tool-ok; the check outcome travels as "passed".
     res = ctx.call("ability_check", {"character_id": "aldric", "ability": "str",
-                                     "dc": 10}, expect=None, note="lowercase ability ok")
+                                     "dc": 10}, expect=True, note="lowercase ability ok")
     ctx.check("total" in res, "lowercase ability name was not accepted")
     ctx.call("end_turn", {}, expect=False, note="no combat active")
     ctx.call("end_combat", {"xp_awarded": 500}, expect=False, note="no combat active")
